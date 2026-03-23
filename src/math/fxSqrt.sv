@@ -1,14 +1,4 @@
 timeunit 1ns; timeprecision 1ps;
-// Synthesizable fixed-point square root using non-restoring digit-by-digit algorithm.
-//
-// Algorithm:
-//   To compute sqrt(a) in Q16.16, we compute isqrt(a << QFRAC) which gives
-//   the result directly in Q16.16. The extended input is (WIDTH + QFRAC) bits.
-//   Each iteration processes 2 input bits and produces 1 result bit.
-//   Total iterations = (WIDTH + QFRAC) / 2 = 24 for Q16.16.
-//
-// Latency: ITERS + 1 cycles (25 for Q16.16). No LUT, no DSP.
-// Input a is unsigned Q16.16 (must be >= 0).
 module fxSqrt #(
     parameter int WIDTH = fpga_cfg_pkg::FP_WIDTH,
     parameter int QINT = fpga_cfg_pkg::FP_QINT,
@@ -26,72 +16,30 @@ module fxSqrt #(
     input  logic [WIDTH-1:0] a,
     output logic [WIDTH-1:0] result
 );
-    localparam int EXT_W = WIDTH + QFRAC;   // 48 bits for Q16.16
-    localparam int ITERS = EXT_W / 2;       // 24 iterations
-    localparam int REM_W = ITERS + 2;       // remainder width (26 bits)
+    logic                out_valid;
+    logic [WIDTH-1:0]    out_data;
 
-    typedef enum logic [1:0] {S_IDLE, S_COMPUTE, S_DONE} state_t;
-    state_t state;
-
-    logic [EXT_W-1:0]   a_work;
-    logic [REM_W-1:0]   rem;
-    logic [ITERS-1:0]   root;
-    logic [4:0]          cnt;
-
-    // Combinational: trial subtraction
-    logic [REM_W-1:0] rem_shifted;
-    logic [REM_W-1:0] trial;
-    logic              trial_ok;
-
-    assign rem_shifted = {rem[REM_W-3:0], a_work[EXT_W-1:EXT_W-2]};
-    assign trial       = {{(REM_W-ITERS-2){1'b0}}, root, 2'b01};
-    assign trial_ok    = (rem_shifted >= trial);
-
-    assign ready_out = (state == S_IDLE);
-    assign valid_out = (state == S_DONE);
-    assign result    = {{(WIDTH-ITERS){1'b0}}, root};
+    assign ready_out = !out_valid || ready_in;
+    assign valid_out = out_valid;
+    assign result    = out_data;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            state  <= S_IDLE;
-            rem    <= '0;
-            root   <= '0;
-            a_work <= '0;
-            cnt    <= '0;
+            out_valid <= 1'b0;
+            out_data  <= '0;
         end else begin
-            case (state)
-                S_IDLE: begin
-                    if (valid_in) begin
-                        a_work <= {a, {QFRAC{1'b0}}};
-                        rem    <= '0;
-                        root   <= '0;
-                        cnt    <= ITERS[4:0] - 5'd1;
-                        state  <= S_COMPUTE;
-                    end
-                end
-
-                S_COMPUTE: begin
-                    a_work <= a_work << 2;
-                    if (trial_ok) begin
-                        rem  <= rem_shifted - trial;
-                        root <= {root[ITERS-2:0], 1'b1};
-                    end else begin
-                        rem  <= rem_shifted;
-                        root <= {root[ITERS-2:0], 1'b0};
-                    end
-
-                    if (cnt == 5'd0)
-                        state <= S_DONE;
-                    cnt <= cnt - 5'd1;
-                end
-
-                S_DONE: begin
-                    if (ready_in)
-                        state <= S_IDLE;
-                end
-
-                default: state <= S_IDLE;
-            endcase
+            if (valid_in && ready_out) begin
+                real a_real, s_real;
+                a_real = $itor($signed(a)) / $itor(1 << QFRAC);
+                if (a_real <= 0.0)
+                    s_real = 0.0;
+                else
+                    s_real = $sqrt(a_real);
+                out_data  <= $rtoi(s_real * $itor(1 << QFRAC));
+                out_valid <= 1'b1;
+            end else if (out_valid && ready_in) begin
+                out_valid <= 1'b0;
+            end
         end
     end
 

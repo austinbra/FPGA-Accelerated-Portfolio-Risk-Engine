@@ -22,8 +22,8 @@ module fxExpLUT #(
     localparam int HALF_LUT = (1 << LUT_BITS);
     localparam int LUT_SIZE = SIGNED_RANGE ? (2 << LUT_BITS) : (1 << LUT_BITS);
     // Domain: [0,1) for unsigned; [-1,1] for signed (low half exp(x), high half exp(-x))
-    localparam signed [WIDTH-1:0] A_MIN = SIGNED_RANGE ? -fpga_cfg_pkg::FP_ONE : '0;
-    localparam signed [WIDTH-1:0] A_MAX = fpga_cfg_pkg::FP_ONE - 1;
+    localparam signed [WIDTH-1:0] A_MIN = SIGNED_RANGE ? -(1 <<< QFRAC) : '0;
+    localparam signed [WIDTH-1:0] A_MAX = (1 <<< QFRAC) - 1;
 
     localparam int SHIFT = QFRAC - LUT_BITS;
 

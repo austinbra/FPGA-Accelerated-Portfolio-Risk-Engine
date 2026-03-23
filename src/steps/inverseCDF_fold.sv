@@ -19,7 +19,7 @@ module inverseCDF_fold #(
     output logic negate                 // If 1, final z-score should be negated
 );
 
-    localparam signed [WIDTH-1:0] HALF = fpga_cfg_pkg::FP_HALF;
+    localparam signed [WIDTH-1:0] HALF = 32'sd1 << (QFRAC-1); // 0.5
 
     logic [WIDTH-1:0] x_reg;
     logic negate_reg, valid_reg;
@@ -37,7 +37,7 @@ module inverseCDF_fold #(
                 x_reg <= u;
                 negate_reg <= 1'b1;
             end else begin
-                x_reg <= fpga_cfg_pkg::FP_ONE - u;
+                x_reg <= (1 << QFRAC) - u;
                 negate_reg <= 1'b0;
             end
                 valid_reg <= 1'b1;

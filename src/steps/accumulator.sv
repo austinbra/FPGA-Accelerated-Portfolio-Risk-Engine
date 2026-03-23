@@ -28,8 +28,7 @@ module accumulator #(
     input  logic [$clog2(N_SAMPLES+1)-1:0] n_samples_cfg,
 
     // beta coefficients once per exercise date
-    output logic signed [WIDTH-1:0]  beta [0:2],
-    output logic                     regression_singular
+    output logic signed [WIDTH-1:0]  beta [0:2]
 );
     // Effective sample count: runtime override or parameter default
     wire [$clog2(N_SAMPLES+1)-1:0] n_eff = (n_samples_cfg != '0) ? n_samples_cfg
@@ -293,8 +292,6 @@ module accumulator #(
     // ----------------------------------------------------------------------------
     // Regression solver
     // ----------------------------------------------------------------------------
-    assign regression_singular = singular_err;
-
     regression solver (
         .clk         (clk),
         .rst_n       (rst_n),

@@ -49,7 +49,7 @@ module fxDiv #(
     // 2.  Prepare operands
     //-------------------------------------------------------------------------
     localparam int DIVIDEND_W = WIDTH + QFRAC;   // 32 + 16  →  48
-    localparam signed [WIDTH-1:0] ONE_Q = fpga_cfg_pkg::FP_ONE;
+    localparam signed [WIDTH-1:0] ONE_Q = (1 <<< QFRAC);
 
     logic signed [DIVIDEND_W-1:0] dividend;
     assign dividend = $signed(numerator) <<< QFRAC;

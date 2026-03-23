@@ -19,7 +19,7 @@ module inverseCDF #(
     output logic signed [WIDTH-1:0] z_out
 );
 
-    localparam signed [WIDTH-1:0] NEG_TWO = fpga_cfg_pkg::FP_NEG_TWO;
+    localparam signed [WIDTH-1:0] NEG_TWO = -(2 << QFRAC);
 
     // Serial pipeline: fold -> lnLUT -> mul -> sqrt -> rational.
     // Each stage's ready_out feeds the previous stage's ready_in.

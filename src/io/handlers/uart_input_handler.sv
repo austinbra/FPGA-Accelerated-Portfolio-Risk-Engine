@@ -20,12 +20,11 @@ module uart_input_handler #(
     output logic [31:0] T,
     output logic        option_type,  // 0=CALL (max(S-K,0)), 1=PUT (max(K-S,0))
 
-    // Result packet from compute core
+    // Optional benchmark/result packet from compute core
     input  logic        result_valid,
     input  logic [31:0] result_price,
     input  logic [31:0] result_cycles_lo,
-    input  logic [31:0] result_cycles_hi,
-    input  logic [31:0] result_status
+    input  logic [31:0] result_cycles_hi
 );
 
     // FSM states
@@ -143,8 +142,8 @@ end
     logic [2:0] echo_cnt;
     logic       echoing;
     logic       sending_result;
-    logic [2:0] result_idx;
-    logic [31:0] result_buf [0:4];
+    logic [1:0] result_idx;
+    logic [31:0] result_buf [0:3];
     logic       result_pending;
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -154,11 +153,10 @@ end
             sending_result <= 0;
             result_idx <= 0;
             result_pending <= 0;
-            result_buf[0] <= 32'hABCD0002;
+            result_buf[0] <= 32'hABCD0001; // marker/version for host decode
             result_buf[1] <= '0;
             result_buf[2] <= '0;
             result_buf[3] <= '0;
-            result_buf[4] <= '0;
         end else begin
             if (batch_complete_pulse) begin
                 echo_cnt <= 3'd0;
@@ -169,11 +167,10 @@ end
             end
 
             if (result_valid) begin
-                result_buf[0] <= 32'hABCD0002;
+                result_buf[0] <= 32'hABCD0001;
                 result_buf[1] <= result_price;
                 result_buf[2] <= result_cycles_lo;
                 result_buf[3] <= result_cycles_hi;
-                result_buf[4] <= result_status;
                 result_pending <= 1'b1;
             end
 
@@ -198,7 +195,7 @@ end
 `ifdef UART_DEBUG
                 $display("%0t UART_HANDLER: result word idx=%0d data=0x%08x", $time, result_idx, result_buf[result_idx]);
 `endif
-                if (result_idx == 3'd4) begin
+                if (result_idx == 2'd3) begin
                     sending_result <= 1'b0;
                     result_pending <= 1'b0;
                 end else begin

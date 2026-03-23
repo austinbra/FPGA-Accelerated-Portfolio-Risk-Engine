@@ -7,7 +7,7 @@ module tb_top_option_pricer_uart_core #(
     parameter int CLK_FREQ_HZ = 100_000_000;
     parameter int BAUD_RATE   = 115200;
     localparam int NUM_PARAMS = 8;
-    localparam int NUM_RESULT = 5;
+    localparam int NUM_RESULT = 4;
     localparam int MAX_WAIT_CYCLES = 8_000_000;
     localparam int unsigned DUT_CORE_MAX_CYCLES = EXPECT_TIMEOUT ? 32'd32 : 32'd2_000_000;
 
@@ -194,7 +194,7 @@ module tb_top_option_pricer_uart_core #(
                 recv_word(result_words[i]);
             end
 
-            if (result_words[0] !== 32'hABCD0002 && result_words[0] !== 32'hABCD0001) begin
+            if (result_words[0] !== 32'hABCD0001) begin
                 $display("Batch %0d result marker mismatch: got=0x%08h", batch_idx, result_words[0]);
                 errors++;
             end
@@ -233,11 +233,6 @@ module tb_top_option_pricer_uart_core #(
                 $display("Batch %0d cycle count unexpectedly zero in timeout mode", batch_idx);
                 errors++;
             end
-
-            // Decode status word
-            $display("Batch %0d status=0x%08h (timeout=%0b singular=%0b)",
-                     batch_idx, result_words[4],
-                     result_words[4][0], result_words[4][1]);
         end
     endtask
 

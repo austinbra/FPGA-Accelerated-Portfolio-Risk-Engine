@@ -99,3 +99,14 @@ dfx_runtime.txt
 
 # Simulation debug traces
 *_trace.txt
+
+# Obsidian vault (local knowledge base, not version-controlled)
+vault/
+
+# -------------------------
+# 6) Cursor / local AI workspace ("memory layer")
+# -------------------------
+# Rules, agent context, and similar stay local so the public repo reads as
+# normal project history only.
+.cursor/
+.specstory/
