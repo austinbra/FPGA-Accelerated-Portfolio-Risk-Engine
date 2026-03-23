@@ -111,10 +111,12 @@ module top_mc_option_pricer #(
     // Path/step counters
     logic [15:0]         path_idx;
     logic [7:0]          step_idx;
-    logic [LANE_W-1:0]   active_lane;
-    logic signed [W-1:0] s_curr;
-    logic signed [W-1:0] s_exercise;
-    logic signed [W-1:0] s_terminal;
+    logic [LANE_W-1:0]   feed_lane_idx;
+    logic [NUM_LANES-1:0] lane_active_mask;
+    logic [LANE_W:0]      lane_active_count;
+    logic signed [W-1:0] s_curr_lane [0:NUM_LANES-1];
+    logic signed [W-1:0] s_exercise_lane [0:NUM_LANES-1];
+    logic signed [W-1:0] s_terminal_lane [0:NUM_LANES-1];
 
     // Antithetic variates: even path_idx = normal, odd = negated z.
     // Path-index mapping is centralized so D5 lane scheduling can reuse it.
@@ -124,14 +126,30 @@ module top_mc_option_pricer #(
     function automatic logic is_antithetic_path(input [15:0] pidx);
         is_antithetic_path = ANTITHETIC_EN & pidx[0];
     endfunction
-    function automatic [LANE_W-1:0] lane_rr_next(input [LANE_W-1:0] lane_idx);
-        if (lane_idx == NUM_LANES-1)
-            lane_rr_next = '0;
-        else
-            lane_rr_next = lane_idx + 1'b1;
+    function automatic [15:0] lane_path_idx(
+        input [15:0] base_path,
+        input int unsigned lane_idx
+    );
+        lane_path_idx = base_path + lane_idx[15:0];
     endfunction
-    wire                 antithetic = is_antithetic_path(path_idx);
-    wire [15:0]          sobol_path = map_path_to_sobol(path_idx);
+    function automatic [NUM_LANES-1:0] lane_mask_from_count(input [LANE_W:0] cnt);
+        lane_mask_from_count = '0;
+        for (int i = 0; i < NUM_LANES; i++) begin
+            if (i < cnt)
+                lane_mask_from_count[i] = 1'b1;
+        end
+    endfunction
+    function automatic [LANE_W:0] active_lane_count_from_base(
+        input [15:0] base_path,
+        input [15:0] total
+    );
+        logic [15:0] remaining;
+        remaining = total - base_path;
+        if (remaining >= NUM_LANES[15:0])
+            active_lane_count_from_base = NUM_LANES[LANE_W:0];
+        else
+            active_lane_count_from_base = remaining[LANE_W:0];
+    endfunction
     wire [15:0]          total_paths = ANTITHETIC_EN ? {lat_N[14:0], 1'b0} : lat_N;
 
     // Accumulation for decision pass average
@@ -224,16 +242,6 @@ module top_mc_option_pricer #(
     // Current scheduler policy: one active lane at a time, round-robin by path.
     // This keeps behavior stable while preparing full multi-lane scheduling.
     // =========================================================================
-    logic                    sobol_vin, sobol_rout, sobol_vout;
-    logic [W-1:0]            sobol_idx;
-    logic [$clog2(MAX_STEPS)-1:0] sobol_dim;
-
-    logic                    inv_vout, inv_rout;
-    logic signed [W-1:0]     inv_z;
-
-    logic                    gbm_vout, gbm_rout;
-    logic signed [W-1:0]     gbm_s_next;
-
     logic [NUM_LANES-1:0]    sobol_vin_lane, sobol_rout_lane, sobol_vout_lane;
     logic [W-1:0]            sobol_idx_lane [0:NUM_LANES-1];
     logic [$clog2(MAX_STEPS)-1:0] sobol_dim_lane [0:NUM_LANES-1];
@@ -246,35 +254,30 @@ module top_mc_option_pricer #(
     logic [NUM_LANES-1:0]    gbm_vout_lane, gbm_rout_lane;
     logic signed [W-1:0]     gbm_s_next_lane [0:NUM_LANES-1];
 
+    logic                    sobol_all_rout;
+    logic                    gbm_all_vout;
     logic                    pipe_ready_in;
 
     always_comb begin
-        sobol_rout = sobol_rout_lane[active_lane];
-        sobol_vout = sobol_vout_lane[active_lane];
-        inv_rout   = inv_rout_lane[active_lane];
-        inv_vout   = inv_vout_lane[active_lane];
-        inv_z      = inv_z_lane[active_lane];
-        gbm_rout   = gbm_rout_lane[active_lane];
-        gbm_vout   = gbm_vout_lane[active_lane];
-        gbm_s_next = gbm_s_next_lane[active_lane];
-
+        sobol_all_rout = 1'b1;
+        gbm_all_vout   = 1'b1;
         for (int ln = 0; ln < NUM_LANES; ln++) begin
-            sobol_vin_lane[ln] = 1'b0;
-            sobol_idx_lane[ln] = '0;
-            sobol_dim_lane[ln] = '0;
+            if (lane_active_mask[ln]) begin
+                sobol_all_rout &= sobol_rout_lane[ln];
+                gbm_all_vout   &= gbm_vout_lane[ln];
+            end
         end
-        sobol_vin_lane[active_lane] = sobol_vin;
-        sobol_idx_lane[active_lane] = sobol_idx;
-        sobol_dim_lane[active_lane] = sobol_dim;
     end
 
     genvar lane;
     generate
         for (lane = 0; lane < NUM_LANES; lane++) begin : GEN_PIPE_LANE
             logic signed [W-1:0] sobol_q16_lane;
+            logic signed [W-1:0] inv_z_eff_lane;
             logic signed [W-1:0] gbm_z_lane;
             assign sobol_q16_lane = $signed({{QF{1'b0}}, sobol_out_lane[lane][W-1:QF]});  // Q0.32 → Q16.16
-            assign gbm_z_lane     = antithetic ? -inv_z_lane[lane] : inv_z_lane[lane];
+            assign inv_z_eff_lane = is_antithetic_path(lane_path_idx(path_idx, lane)) ? -inv_z_lane[lane] : inv_z_lane[lane];
+            assign gbm_z_lane     = inv_z_eff_lane;
 
             sobol #(
                 .M      (MAX_STEPS),
@@ -311,7 +314,7 @@ module top_mc_option_pricer #(
                 .valid_out   (gbm_vout_lane[lane]),
                 .ready_in    (pipe_ready_in),
                 .z           (gbm_z_lane),
-                .S           (s_curr),
+                .S           (s_curr_lane[lane]),
                 .drift_const (drift_const_reg),
                 .vol_sqrt_dt (vol_sqrt_dt_reg),
                 .S_next      (gbm_s_next_lane[lane])
@@ -350,6 +353,8 @@ module top_mc_option_pricer #(
     // =========================================================================
     logic                    lsm_vin, lsm_vout, lsm_rout, lsm_rin;
     logic signed [W-1:0]    lsm_pv;
+    logic signed [W-1:0]    s_exercise_sel, s_terminal_sel;
+    logic signed [W-1:0]    terminal_payoff;
 
     lsm_decision u_lsm (
         .clk         (clk_100),
@@ -358,7 +363,7 @@ module top_mc_option_pricer #(
         .valid_out   (lsm_vout),
         .ready_in    (lsm_rin),
         .ready_out   (lsm_rout),
-        .S_t         (s_exercise),
+        .S_t         (s_exercise_sel),
         .s_norm      (s_norm_reg),
         .beta        (beta_reg),
         .strike      (lat_K),
@@ -371,10 +376,11 @@ module top_mc_option_pricer #(
     // =========================================================================
     // Payoff computation (combinational): CALL max(S-K,0), PUT max(K-S,0)
     // =========================================================================
-    logic signed [W-1:0] terminal_payoff;
+    assign s_exercise_sel = s_exercise_lane[feed_lane_idx];
+    assign s_terminal_sel = s_terminal_lane[feed_lane_idx];
     assign terminal_payoff = lat_option_type
-        ? ((lat_K > s_terminal) ? (lat_K - s_terminal) : '0)   // PUT
-        : ((s_terminal > lat_K) ? (s_terminal - lat_K) : '0);  // CALL
+        ? ((lat_K > s_terminal_sel) ? (lat_K - s_terminal_sel) : '0)   // PUT
+        : ((s_terminal_sel > lat_K) ? (s_terminal_sel - lat_K) : '0);  // CALL
 
     // =========================================================================
     // Main FSM
@@ -401,10 +407,9 @@ module top_mc_option_pricer #(
             batch_ready     <= 1'b1;
             path_idx        <= '0;
             step_idx        <= '0;
-            active_lane     <= '0;
-            s_curr          <= '0;
-            s_exercise      <= '0;
-            s_terminal      <= '0;
+            feed_lane_idx   <= '0;
+            lane_active_mask <= '0;
+            lane_active_count <= '0;
             sum_pv          <= '0;
             dt_reg          <= '0;
             drift_const_reg <= '0;
@@ -416,9 +421,6 @@ module top_mc_option_pricer #(
             sub_phase        <= '0;
             disc_pow_cnt    <= '0;
             sobol_accepted  <= 1'b0;
-            sobol_vin       <= 1'b0;
-            sobol_idx       <= '0;
-            sobol_dim       <= '0;
             acc_vin         <= 1'b0;
             acc_x           <= '0;
             acc_y           <= '0;
@@ -433,6 +435,14 @@ module top_mc_option_pricer #(
             util_exp_a      <= '0;
             util_sqrt_vin   <= 1'b0;
             util_sqrt_a     <= '0;
+            for (int ln = 0; ln < NUM_LANES; ln++) begin
+                s_curr_lane[ln]     <= '0;
+                s_exercise_lane[ln] <= '0;
+                s_terminal_lane[ln] <= '0;
+                sobol_vin_lane[ln]  <= 1'b0;
+                sobol_idx_lane[ln]  <= '0;
+                sobol_dim_lane[ln]  <= '0;
+            end
             for (int i = 0; i < 3; i++) beta_reg[i] <= '0;
             lat_S0 <= '0; lat_K <= '0; lat_r <= '0;
             lat_sigma <= '0; lat_T <= '0;
@@ -441,13 +451,14 @@ module top_mc_option_pricer #(
         end else begin
             // Default: clear one-cycle pulses
             result_valid   <= 1'b0;
-            sobol_vin      <= 1'b0;
             acc_vin        <= 1'b0;
             lsm_vin        <= 1'b0;
             util_mul_vin   <= 1'b0;
             util_div_vin   <= 1'b0;
             util_exp_vin   <= 1'b0;
             util_sqrt_vin  <= 1'b0;
+            for (int ln = 0; ln < NUM_LANES; ln++)
+                sobol_vin_lane[ln] <= 1'b0;
 
             // Cycle counter
             if (core_active)
@@ -474,7 +485,6 @@ module top_mc_option_pricer #(
                     cycle_counter <= '0;
                     status_flags  <= '0;
                     sub_phase      <= '0;
-                    active_lane   <= '0;
                     state         <= ST_INIT_DT;
                 end
             end
@@ -622,8 +632,11 @@ module top_mc_option_pricer #(
                         // disc_total = disc^(M-1) complete
                         path_idx       <= '0;
                         step_idx       <= '0;
-                        active_lane    <= '0;
-                        s_curr         <= lat_S0;
+                        feed_lane_idx  <= '0;
+                        lane_active_count <= active_lane_count_from_base('0, total_paths);
+                        lane_active_mask  <= lane_mask_from_count(active_lane_count_from_base('0, total_paths));
+                        for (int ln = 0; ln < NUM_LANES; ln++)
+                            s_curr_lane[ln] <= lat_S0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_STEP;
                     end
@@ -637,27 +650,42 @@ module top_mc_option_pricer #(
             ST_TRAIN_STEP: begin
                 if (core_timeout) begin
                     state <= ST_DONE;
-                end else if (!sobol_accepted && sobol_rout) begin
-                    sobol_idx      <= {16'd0, sobol_path};
-                    sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0];
-                    sobol_vin      <= 1'b1;
+                end else if (!sobol_accepted && sobol_all_rout) begin
+                    for (int ln = 0; ln < NUM_LANES; ln++) begin
+                        if (lane_active_mask[ln]) begin
+                            sobol_idx_lane[ln] <= {16'd0, map_path_to_sobol(lane_path_idx(path_idx, ln))};
+                            sobol_dim_lane[ln] <= step_idx[$clog2(MAX_STEPS)-1:0];
+                            sobol_vin_lane[ln] <= 1'b1;
+                        end
+                    end
                     sobol_accepted <= 1'b1;
-                end else if (sobol_accepted && gbm_vout) begin
-                    if (step_idx == lat_M - 2)
-                        s_exercise <= gbm_s_next;
-
-                    s_curr   <= gbm_s_next;
+                end else if (sobol_accepted && gbm_all_vout) begin
+                    for (int ln = 0; ln < NUM_LANES; ln++) begin
+                        if (lane_active_mask[ln]) begin
+                            if (step_idx == lat_M - 2)
+                                s_exercise_lane[ln] <= gbm_s_next_lane[ln];
+                            s_curr_lane[ln] <= gbm_s_next_lane[ln];
+                        end
+                    end
                     step_idx <= step_idx + 1'b1;
 
                     if (step_idx == lat_M - 1) begin
-                        s_terminal     <= gbm_s_next;
+                        for (int ln = 0; ln < NUM_LANES; ln++) begin
+                            if (lane_active_mask[ln])
+                                s_terminal_lane[ln] <= gbm_s_next_lane[ln];
+                        end
+                        feed_lane_idx  <= '0;
                         sub_phase      <= '0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_FEED;
-                    end else if (sobol_rout) begin
-                        sobol_idx      <= {16'd0, sobol_path};
-                        sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
-                        sobol_vin      <= 1'b1;
+                    end else if (sobol_all_rout) begin
+                        for (int ln = 0; ln < NUM_LANES; ln++) begin
+                            if (lane_active_mask[ln]) begin
+                                sobol_idx_lane[ln] <= {16'd0, map_path_to_sobol(lane_path_idx(path_idx, ln))};
+                                sobol_dim_lane[ln] <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
+                                sobol_vin_lane[ln] <= 1'b1;
+                            end
+                        end
                         sobol_accepted <= 1'b1;
                     end else begin
                         sobol_accepted <= 1'b0;
@@ -682,7 +710,7 @@ module top_mc_option_pricer #(
                 // sub 1: store cont_value, fire s_exercise * inv_K
                 else if (sub_phase == 1 && util_mul_vout) begin
                     acc_y        <= util_mul_result;
-                    util_mul_a   <= s_exercise;
+                    util_mul_a   <= s_exercise_sel;
                     util_mul_b   <= inv_K_reg;
                     util_mul_vin <= 1'b1;
                     sub_phase     <= 3'd2;
@@ -692,17 +720,23 @@ module top_mc_option_pricer #(
                     acc_x  <= util_mul_result;   // normalized S/K
                     if (acc_rout) begin
                         acc_vin  <= 1'b1;
-                        path_idx <= path_idx + 1'b1;
                         sub_phase <= '0;
-
-                        if (path_idx + 1 >= total_paths) begin
-                            state <= ST_WAIT_BETA;
+                        if ({1'b0, feed_lane_idx} + 1'b1 < lane_active_count) begin
+                            feed_lane_idx <= feed_lane_idx + 1'b1;
                         end else begin
-                            step_idx       <= '0;
-                            active_lane    <= lane_rr_next(active_lane);
-                            s_curr         <= lat_S0;
-                            sobol_accepted <= 1'b0;
-                            state          <= ST_TRAIN_STEP;
+                            path_idx      <= path_idx + lane_active_count;
+                            feed_lane_idx <= '0;
+                            if (path_idx + lane_active_count >= total_paths) begin
+                                state <= ST_WAIT_BETA;
+                            end else begin
+                                step_idx <= '0;
+                                lane_active_count <= active_lane_count_from_base(path_idx + lane_active_count, total_paths);
+                                lane_active_mask  <= lane_mask_from_count(active_lane_count_from_base(path_idx + lane_active_count, total_paths));
+                                for (int ln = 0; ln < NUM_LANES; ln++)
+                                    s_curr_lane[ln] <= lat_S0;
+                                sobol_accepted <= 1'b0;
+                                state          <= ST_TRAIN_STEP;
+                            end
                         end
                     end
                 end
@@ -721,8 +755,11 @@ module top_mc_option_pricer #(
                         status_flags[1] <= 1'b1;
                     path_idx       <= '0;
                     step_idx       <= '0;
-                    active_lane    <= '0;
-                    s_curr         <= lat_S0;
+                    feed_lane_idx  <= '0;
+                    lane_active_count <= active_lane_count_from_base('0, total_paths);
+                    lane_active_mask  <= lane_mask_from_count(active_lane_count_from_base('0, total_paths));
+                    for (int ln = 0; ln < NUM_LANES; ln++)
+                        s_curr_lane[ln] <= lat_S0;
                     sobol_accepted <= 1'b0;
                     sum_pv         <= '0;
                     state          <= ST_DECIDE_STEP;
@@ -735,27 +772,42 @@ module top_mc_option_pricer #(
             ST_DECIDE_STEP: begin
                 if (core_timeout) begin
                     state <= ST_DONE;
-                end else if (!sobol_accepted && sobol_rout) begin
-                    sobol_idx      <= {16'd0, sobol_path};
-                    sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0];
-                    sobol_vin      <= 1'b1;
+                end else if (!sobol_accepted && sobol_all_rout) begin
+                    for (int ln = 0; ln < NUM_LANES; ln++) begin
+                        if (lane_active_mask[ln]) begin
+                            sobol_idx_lane[ln] <= {16'd0, map_path_to_sobol(lane_path_idx(path_idx, ln))};
+                            sobol_dim_lane[ln] <= step_idx[$clog2(MAX_STEPS)-1:0];
+                            sobol_vin_lane[ln] <= 1'b1;
+                        end
+                    end
                     sobol_accepted <= 1'b1;
-                end else if (sobol_accepted && gbm_vout) begin
-                    if (step_idx == lat_M - 2)
-                        s_exercise <= gbm_s_next;
-
-                    s_curr   <= gbm_s_next;
+                end else if (sobol_accepted && gbm_all_vout) begin
+                    for (int ln = 0; ln < NUM_LANES; ln++) begin
+                        if (lane_active_mask[ln]) begin
+                            if (step_idx == lat_M - 2)
+                                s_exercise_lane[ln] <= gbm_s_next_lane[ln];
+                            s_curr_lane[ln] <= gbm_s_next_lane[ln];
+                        end
+                    end
                     step_idx <= step_idx + 1'b1;
 
                     if (step_idx == lat_M - 1) begin
-                        s_terminal     <= gbm_s_next;
+                        for (int ln = 0; ln < NUM_LANES; ln++) begin
+                            if (lane_active_mask[ln])
+                                s_terminal_lane[ln] <= gbm_s_next_lane[ln];
+                        end
+                        feed_lane_idx  <= '0;
                         sub_phase      <= '0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_DECIDE_FEED;
-                    end else if (sobol_rout) begin
-                        sobol_idx      <= {16'd0, sobol_path};
-                        sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
-                        sobol_vin      <= 1'b1;
+                    end else if (sobol_all_rout) begin
+                        for (int ln = 0; ln < NUM_LANES; ln++) begin
+                            if (lane_active_mask[ln]) begin
+                                sobol_idx_lane[ln] <= {16'd0, map_path_to_sobol(lane_path_idx(path_idx, ln))};
+                                sobol_dim_lane[ln] <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
+                                sobol_vin_lane[ln] <= 1'b1;
+                            end
+                        end
                         sobol_accepted <= 1'b1;
                     end else begin
                         sobol_accepted <= 1'b0;
@@ -779,7 +831,7 @@ module top_mc_option_pricer #(
                 // sub 1: store cont_value, fire s_exercise * inv_K
                 else if (sub_phase == 1 && util_mul_vout) begin
                     acc_y        <= util_mul_result;
-                    util_mul_a   <= s_exercise;
+                    util_mul_a   <= s_exercise_sel;
                     util_mul_b   <= inv_K_reg;
                     util_mul_vin <= 1'b1;
                     sub_phase     <= 3'd2;
@@ -802,17 +854,23 @@ module top_mc_option_pricer #(
                 // sub 4: accumulate discounted PV
                 else if (sub_phase == 4 && util_mul_vout) begin
                     sum_pv   <= sum_pv + {{(64-W){util_mul_result[W-1]}}, util_mul_result};
-                    path_idx <= path_idx + 1'b1;
                     sub_phase <= '0;
-
-                    if (path_idx + 1 >= total_paths) begin
-                        state <= ST_FINAL_DIV;
+                    if ({1'b0, feed_lane_idx} + 1'b1 < lane_active_count) begin
+                        feed_lane_idx <= feed_lane_idx + 1'b1;
                     end else begin
-                        step_idx       <= '0;
-                        active_lane    <= lane_rr_next(active_lane);
-                        s_curr         <= lat_S0;
-                        sobol_accepted <= 1'b0;
-                        state          <= ST_DECIDE_STEP;
+                        path_idx      <= path_idx + lane_active_count;
+                        feed_lane_idx <= '0;
+                        if (path_idx + lane_active_count >= total_paths) begin
+                            state <= ST_FINAL_DIV;
+                        end else begin
+                            step_idx <= '0;
+                            lane_active_count <= active_lane_count_from_base(path_idx + lane_active_count, total_paths);
+                            lane_active_mask  <= lane_mask_from_count(active_lane_count_from_base(path_idx + lane_active_count, total_paths));
+                            for (int ln = 0; ln < NUM_LANES; ln++)
+                                s_curr_lane[ln] <= lat_S0;
+                            sobol_accepted <= 1'b0;
+                            state          <= ST_DECIDE_STEP;
+                        end
                     end
                 end
             end
@@ -879,9 +937,9 @@ module top_mc_option_pricer #(
             $display("[FSM] t=%0t %0d->%0d sub=%0d path=%0d step=%0d",
                      $time, prev_state, state, sub_phase, path_idx, step_idx);
         if (core_active && cycle_counter[16:0] == '0) begin
-            $display("[TOP] t=%0t state=%0d sub=%0d path=%0d step=%0d cyc=%0d inv_v=%b gbm_v=%b",
+            $display("[TOP] t=%0t state=%0d sub=%0d path=%0d step=%0d cyc=%0d lanes=%b gbm_all=%b",
                      $time, state, sub_phase, path_idx, step_idx, cycle_counter,
-                     inv_vout, gbm_vout);
+                     lane_active_mask, gbm_all_vout);
         end
         if (core_active && cycle_counter == 64'd200)
             $display("[TOP-INIT] dt=%h disc=%h disc_total=%h inv_K=%h lat_M=%0d lat_N=%0d",

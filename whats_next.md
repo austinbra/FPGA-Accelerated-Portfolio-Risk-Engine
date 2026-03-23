@@ -47,8 +47,8 @@ All pipeline modules are **complete and fully synthesizable**. No behavioral mod
 - **Progress (2026-03-22)**:
   - Added D5 scaffolding in top-level (`NUM_LANES` parameter + centralized path->Sobol/antithetic mapping helpers + elaboration guard messages).
   - Implemented replicated lane RTL generation for Sobol/InverseCDF/GBM (`for`-generate over `NUM_LANES`) with active-lane signal muxing.
-  - Added round-robin lane scheduler hook at path boundaries (training + decision passes).
-  - Current limitation: scheduler still runs one active lane at a time; full concurrent lane feed/merge remains next.
+  - Added lane-bundle scheduler: active-lane mask + active-lane count per bundle, concurrent per-step launches/collects across active lanes, and lane-serialized feed into accumulator/LSM with bundle-based path advancement.
+  - Current limitation: feed/merge is still serialized per lane after each bundle; next step is full overlapped lane feed/merge buffering.
 
 ### Priority 2: Multi-Exercise-Date Expansion
 - **What**: Full backward induction with M-1 regression passes
