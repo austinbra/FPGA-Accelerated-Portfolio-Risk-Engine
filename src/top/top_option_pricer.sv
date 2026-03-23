@@ -24,7 +24,9 @@ module top_mc_option_pricer #(
     parameter int CLK_FREQ_HZ            = 100_000_000,
     parameter int BAUD_RATE              = 115200,
     parameter int unsigned CORE_MAX_CYCLES = 32'd50_000_000,
-    parameter int MAX_STEPS              = 50
+    parameter int MAX_STEPS              = 50,
+    parameter bit ANTITHETIC_EN          = 1'b1,
+    parameter int NUM_LANES              = 1
 )(
     input  logic clk_100,
     input  logic rst_btn_n,
@@ -33,6 +35,7 @@ module top_mc_option_pricer #(
 );
     localparam int W  = fpga_cfg_pkg::FP_WIDTH;
     localparam int QF = fpga_cfg_pkg::FP_QFRAC;
+    localparam int LANE_W = (NUM_LANES <= 1) ? 1 : $clog2(NUM_LANES);
 
     // =========================================================================
     // UART I/O
@@ -108,9 +111,28 @@ module top_mc_option_pricer #(
     // Path/step counters
     logic [15:0]         path_idx;
     logic [7:0]          step_idx;
+    logic [LANE_W-1:0]   active_lane;
     logic signed [W-1:0] s_curr;
     logic signed [W-1:0] s_exercise;
     logic signed [W-1:0] s_terminal;
+
+    // Antithetic variates: even path_idx = normal, odd = negated z.
+    // Path-index mapping is centralized so D5 lane scheduling can reuse it.
+    function automatic [15:0] map_path_to_sobol(input [15:0] pidx);
+        map_path_to_sobol = ANTITHETIC_EN ? pidx[15:1] : pidx;
+    endfunction
+    function automatic logic is_antithetic_path(input [15:0] pidx);
+        is_antithetic_path = ANTITHETIC_EN & pidx[0];
+    endfunction
+    function automatic [LANE_W-1:0] lane_rr_next(input [LANE_W-1:0] lane_idx);
+        if (lane_idx == NUM_LANES-1)
+            lane_rr_next = '0;
+        else
+            lane_rr_next = lane_idx + 1'b1;
+    endfunction
+    wire                 antithetic = is_antithetic_path(path_idx);
+    wire [15:0]          sobol_path = map_path_to_sobol(path_idx);
+    wire [15:0]          total_paths = ANTITHETIC_EN ? {lat_N[14:0], 1'b0} : lat_N;
 
     // Accumulation for decision pass average
     logic signed [63:0]  sum_pv;
@@ -198,63 +220,104 @@ module top_mc_option_pricer #(
     assign util_sqrt_rin = 1'b1;
 
     // =========================================================================
-    // Pipeline: sobol -> inverseCDF -> GBM
+    // Pipeline lanes: sobol -> inverseCDF -> GBM
+    // Current scheduler policy: one active lane at a time, round-robin by path.
+    // This keeps behavior stable while preparing full multi-lane scheduling.
     // =========================================================================
     logic                    sobol_vin, sobol_rout, sobol_vout;
     logic [W-1:0]            sobol_idx;
     logic [$clog2(MAX_STEPS)-1:0] sobol_dim;
-    logic [W-1:0]            sobol_out;
-    logic [W-1:0]            sobol_direction [0:MAX_STEPS*W-1];
 
     logic                    inv_vout, inv_rout;
-    logic signed [W-1:0]    inv_z;
+    logic signed [W-1:0]     inv_z;
 
     logic                    gbm_vout, gbm_rout;
-    logic signed [W-1:0]    gbm_s_next;
+    logic signed [W-1:0]     gbm_s_next;
 
-    // Pipeline ready chain
+    logic [NUM_LANES-1:0]    sobol_vin_lane, sobol_rout_lane, sobol_vout_lane;
+    logic [W-1:0]            sobol_idx_lane [0:NUM_LANES-1];
+    logic [$clog2(MAX_STEPS)-1:0] sobol_dim_lane [0:NUM_LANES-1];
+    logic [W-1:0]            sobol_out_lane [0:NUM_LANES-1];
+    logic [W-1:0]            sobol_direction_lane [0:NUM_LANES-1][0:MAX_STEPS*W-1];
+
+    logic [NUM_LANES-1:0]    inv_vout_lane, inv_rout_lane;
+    logic signed [W-1:0]     inv_z_lane [0:NUM_LANES-1];
+
+    logic [NUM_LANES-1:0]    gbm_vout_lane, gbm_rout_lane;
+    logic signed [W-1:0]     gbm_s_next_lane [0:NUM_LANES-1];
+
     logic                    pipe_ready_in;
 
-    sobol #(.M(MAX_STEPS)) u_sobol (
-        .clk       (clk_100),
-        .rst_n     (rst_btn_n),
-        .valid_in  (sobol_vin),
-        .ready_out (sobol_rout),
-        .valid_out (sobol_vout),
-        .ready_in  (inv_rout),
-        .idx_in    (sobol_idx),
-        .dim_in    (sobol_dim),
-        .sobol_out (sobol_out),
-        .direction (sobol_direction)
-    );
+    always_comb begin
+        sobol_rout = sobol_rout_lane[active_lane];
+        sobol_vout = sobol_vout_lane[active_lane];
+        inv_rout   = inv_rout_lane[active_lane];
+        inv_vout   = inv_vout_lane[active_lane];
+        inv_z      = inv_z_lane[active_lane];
+        gbm_rout   = gbm_rout_lane[active_lane];
+        gbm_vout   = gbm_vout_lane[active_lane];
+        gbm_s_next = gbm_s_next_lane[active_lane];
 
-    logic signed [W-1:0] sobol_q16;
-    assign sobol_q16 = $signed({{QF{1'b0}}, sobol_out[W-1:QF]});  // Q0.32 → Q16.16
+        for (int ln = 0; ln < NUM_LANES; ln++) begin
+            sobol_vin_lane[ln] = 1'b0;
+            sobol_idx_lane[ln] = '0;
+            sobol_dim_lane[ln] = '0;
+        end
+        sobol_vin_lane[active_lane] = sobol_vin;
+        sobol_idx_lane[active_lane] = sobol_idx;
+        sobol_dim_lane[active_lane] = sobol_dim;
+    end
 
-    inverseCDF u_inv (
-        .clk       (clk_100),
-        .rst_n     (rst_btn_n),
-        .valid_in  (sobol_vout),
-        .ready_out (inv_rout),
-        .u_in      (sobol_q16),
-        .valid_out (inv_vout),
-        .ready_in  (gbm_rout),
-        .z_out     (inv_z)
-    );
+    genvar lane;
+    generate
+        for (lane = 0; lane < NUM_LANES; lane++) begin : GEN_PIPE_LANE
+            logic signed [W-1:0] sobol_q16_lane;
+            logic signed [W-1:0] gbm_z_lane;
+            assign sobol_q16_lane = $signed({{QF{1'b0}}, sobol_out_lane[lane][W-1:QF]});  // Q0.32 → Q16.16
+            assign gbm_z_lane     = antithetic ? -inv_z_lane[lane] : inv_z_lane[lane];
 
-    GBM u_gbm (
-        .clk         (clk_100),
-        .rst_n       (rst_btn_n),
-        .valid_in    (inv_vout),
-        .ready_out   (gbm_rout),
-        .valid_out   (gbm_vout),
-        .ready_in    (pipe_ready_in),
-        .z           (inv_z),
-        .S           (s_curr),
-        .drift_const (drift_const_reg),
-        .vol_sqrt_dt (vol_sqrt_dt_reg),
-        .S_next      (gbm_s_next)
-    );
+            sobol #(
+                .M      (MAX_STEPS),
+                .LANE_ID(lane)
+            ) u_sobol (
+                .clk       (clk_100),
+                .rst_n     (rst_btn_n),
+                .valid_in  (sobol_vin_lane[lane]),
+                .ready_out (sobol_rout_lane[lane]),
+                .valid_out (sobol_vout_lane[lane]),
+                .ready_in  (inv_rout_lane[lane]),
+                .idx_in    (sobol_idx_lane[lane]),
+                .dim_in    (sobol_dim_lane[lane]),
+                .sobol_out (sobol_out_lane[lane]),
+                .direction (sobol_direction_lane[lane])
+            );
+
+            inverseCDF u_inv (
+                .clk       (clk_100),
+                .rst_n     (rst_btn_n),
+                .valid_in  (sobol_vout_lane[lane]),
+                .ready_out (inv_rout_lane[lane]),
+                .u_in      (sobol_q16_lane),
+                .valid_out (inv_vout_lane[lane]),
+                .ready_in  (gbm_rout_lane[lane]),
+                .z_out     (inv_z_lane[lane])
+            );
+
+            GBM u_gbm (
+                .clk         (clk_100),
+                .rst_n       (rst_btn_n),
+                .valid_in    (inv_vout_lane[lane]),
+                .ready_out   (gbm_rout_lane[lane]),
+                .valid_out   (gbm_vout_lane[lane]),
+                .ready_in    (pipe_ready_in),
+                .z           (gbm_z_lane),
+                .S           (s_curr),
+                .drift_const (drift_const_reg),
+                .vol_sqrt_dt (vol_sqrt_dt_reg),
+                .S_next      (gbm_s_next_lane[lane])
+            );
+        end
+    endgenerate
 
     // FSM always accepts GBM output when it arrives
     assign pipe_ready_in = 1'b1;
@@ -276,7 +339,7 @@ module top_mc_option_pricer #(
         .ready_in           (acc_rin),
         .x_in               (acc_x),
         .y_in               (acc_y),
-        .n_samples_cfg      (lat_N[$clog2(10001)-1:0]),
+        .n_samples_cfg      (total_paths[$clog2(10001)-1:0]),
         .beta               (acc_beta),
         .regression_singular(acc_singular)
     );
@@ -338,6 +401,7 @@ module top_mc_option_pricer #(
             batch_ready     <= 1'b1;
             path_idx        <= '0;
             step_idx        <= '0;
+            active_lane     <= '0;
             s_curr          <= '0;
             s_exercise      <= '0;
             s_terminal      <= '0;
@@ -410,6 +474,7 @@ module top_mc_option_pricer #(
                     cycle_counter <= '0;
                     status_flags  <= '0;
                     sub_phase      <= '0;
+                    active_lane   <= '0;
                     state         <= ST_INIT_DT;
                 end
             end
@@ -557,6 +622,7 @@ module top_mc_option_pricer #(
                         // disc_total = disc^(M-1) complete
                         path_idx       <= '0;
                         step_idx       <= '0;
+                        active_lane    <= '0;
                         s_curr         <= lat_S0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_STEP;
@@ -572,13 +638,11 @@ module top_mc_option_pricer #(
                 if (core_timeout) begin
                     state <= ST_DONE;
                 end else if (!sobol_accepted && sobol_rout) begin
-                    // Phase A: fire sobol for this step (path start or first step)
-                    sobol_idx      <= {16'd0, path_idx};
+                    sobol_idx      <= {16'd0, sobol_path};
                     sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0];
                     sobol_vin      <= 1'b1;
                     sobol_accepted <= 1'b1;
                 end else if (sobol_accepted && gbm_vout) begin
-                    // Phase B: collect GBM result, update s_curr/step_idx
                     if (step_idx == lat_M - 2)
                         s_exercise <= gbm_s_next;
 
@@ -586,13 +650,12 @@ module top_mc_option_pricer #(
                     step_idx <= step_idx + 1'b1;
 
                     if (step_idx == lat_M - 1) begin
-                        // Terminal step: path complete, go to TRAIN_FEED
                         s_terminal     <= gbm_s_next;
                         sub_phase      <= '0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_FEED;
                     end else if (sobol_rout) begin
-                        sobol_idx      <= {16'd0, path_idx};
+                        sobol_idx      <= {16'd0, sobol_path};
                         sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
                         sobol_vin      <= 1'b1;
                         sobol_accepted <= 1'b1;
@@ -632,10 +695,11 @@ module top_mc_option_pricer #(
                         path_idx <= path_idx + 1'b1;
                         sub_phase <= '0;
 
-                        if (path_idx + 1 >= lat_N) begin
+                        if (path_idx + 1 >= total_paths) begin
                             state <= ST_WAIT_BETA;
                         end else begin
                             step_idx       <= '0;
+                            active_lane    <= lane_rr_next(active_lane);
                             s_curr         <= lat_S0;
                             sobol_accepted <= 1'b0;
                             state          <= ST_TRAIN_STEP;
@@ -657,6 +721,7 @@ module top_mc_option_pricer #(
                         status_flags[1] <= 1'b1;
                     path_idx       <= '0;
                     step_idx       <= '0;
+                    active_lane    <= '0;
                     s_curr         <= lat_S0;
                     sobol_accepted <= 1'b0;
                     sum_pv         <= '0;
@@ -671,7 +736,7 @@ module top_mc_option_pricer #(
                 if (core_timeout) begin
                     state <= ST_DONE;
                 end else if (!sobol_accepted && sobol_rout) begin
-                    sobol_idx      <= {16'd0, path_idx};
+                    sobol_idx      <= {16'd0, sobol_path};
                     sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0];
                     sobol_vin      <= 1'b1;
                     sobol_accepted <= 1'b1;
@@ -688,7 +753,7 @@ module top_mc_option_pricer #(
                         sobol_accepted <= 1'b0;
                         state          <= ST_DECIDE_FEED;
                     end else if (sobol_rout) begin
-                        sobol_idx      <= {16'd0, path_idx};
+                        sobol_idx      <= {16'd0, sobol_path};
                         sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
                         sobol_vin      <= 1'b1;
                         sobol_accepted <= 1'b1;
@@ -740,10 +805,11 @@ module top_mc_option_pricer #(
                     path_idx <= path_idx + 1'b1;
                     sub_phase <= '0;
 
-                    if (path_idx + 1 >= lat_N) begin
+                    if (path_idx + 1 >= total_paths) begin
                         state <= ST_FINAL_DIV;
                     end else begin
                         step_idx       <= '0;
+                        active_lane    <= lane_rr_next(active_lane);
                         s_curr         <= lat_S0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_DECIDE_STEP;
@@ -759,7 +825,7 @@ module top_mc_option_pricer #(
                     state <= ST_DONE;
                 else if (sub_phase == 0 && util_div_rout) begin
                     util_div_num <= sum_pv[W-1:0];
-                    util_div_den <= $signed({16'd0, lat_N}) <<< QF;
+                    util_div_den <= $signed({16'd0, total_paths}) <<< QF;
                     util_div_vin <= 1'b1;
                     sub_phase     <= 3'd1;
                 end
@@ -795,6 +861,15 @@ module top_mc_option_pricer #(
     assign result_cycles_lo = cycle_counter[31:0];
     assign result_cycles_hi = cycle_counter[63:32];
     assign result_status    = status_flags;
+
+    // synthesis translate_off
+    initial begin
+        if (NUM_LANES < 1)
+            $fatal(1, "NUM_LANES must be >= 1");
+        if (NUM_LANES != 1)
+            $display("[D5] NUM_LANES=%0d enabled: Sobol/InvCDF/GBM are replicated and path scheduling round-robins lanes. Full concurrent multi-lane feeding/merge is next.", NUM_LANES);
+    end
+    // synthesis translate_on
 
 `ifdef TOP_FSM_DEBUG
     state_t prev_state;
