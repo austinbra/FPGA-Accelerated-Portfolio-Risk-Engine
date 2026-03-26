@@ -15,7 +15,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 ## Validation And Status
 - Validation log: `VALIDATION.md` (commands run, results, known gaps).
 - Active implementation tracker: `whats_next.md`.
-- Current state: Pipeline stages (Sobol, InverseCDF, GBM, Accumulator, Regression, LSM Decision) are implemented with ready/valid + skid buffers. Top-level two-pass LSMC engine compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline (FPGA 6.553 vs C++ 6.50).
+- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete.
 
 ---
 
@@ -23,10 +23,12 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 - **Fully pipelined streaming datapath** with skid buffers at every stage boundary:  
   Sobol → Inverse CDF (Zelen–Severo rational approx) → GBM path simulation → Accumulator → Regression (Gaussian elimination) → LSM decision → UART output.  
   Multiple samples in-flight simultaneously; backpressure propagates through ready/valid handshaking without data loss.
-- **Fixed‑point math** (default Q16.16) with LUT‑based exp, behavioral ln/sqrt models (simulation), and moneyness normalization to prevent overflow.
-- **Two running modes** (host-side via `src/uart_host.py`):
+- **Fixed‑point math** (default Q16.16) with LUT‑based exp, synthesizable ln (range decomposition + linear interpolation) and sqrt (non-restoring digit-by-digit), and moneyness normalization to prevent overflow. All modules fully synthesizable — no behavioral models.
+- **Three running modes** (host-side via `src/uart_host.py`):
   - **Benchmark**: CPU vs FPGA side-by-side with identical parameters; reports price, cycles, wall time, speedup.
   - **Live**: Fetches real market data from Yahoo Finance, derives S0/sigma, runs pricing with live parameters.
+  - **Sweep**: Convergence analysis — runs at increasing N (64→4096) and prints price convergence table.
+- **Antithetic variates** for variance reduction: paired z/−z paths double effective sample count with near-zero overhead.
 - **O(1) memory via streaming accumulation**: No path storage required. Running 64‑bit sufficient statistics (8 sums) replace O(N×M) BRAM. Paths are regenerated deterministically (Sobol) for the decision pass — 2× compute, but constant memory regardless of N.
 - **Lane replication ready**: top‑level parameter to scale throughput by instantiating multiple parallel pipelines.
 - **Assertions** for handshake invariants and stall stability.
@@ -41,8 +43,8 @@ The design is a **fully pipelined, streaming datapath** with ready/valid handsha
 - **Sobol generator**: Gray‑coded XOR tree with BRAM‑stored direction numbers. Skid-buffered output.
 - **Inverse CDF** (~15 cycles):  
   - Fold U(0,1) to (0,0.5] with negate flag (event-alignment FIFO for negate, combinational read).
-  - ln + multiply by −2 + sqrt → t.  (ln and sqrt are behavioral models for simulation; synthesizable rewrites pending.)
-  - Zelen–Severo rational polynomial (precomputed Q16.16 constants) → z‑score.  
+  - ln (synthesizable 3-stage pipeline) + multiply by −2 + sqrt (non-restoring digit-by-digit, 25 cycles) → t.
+  - Zelen–Severo rational polynomial (precomputed Q16.16 constants, elaboration-verified) → z‑score.  
 - **GBM step** (~5 cycles, streaming pipeline with input skid buffer):  
   MUL1(vol_sqrt_dt × z) → ADD + saturate → EXP(signed LUT) → MUL2(S × exp).  
   Pre-computed constants (`drift_const`, `vol_sqrt_dt`) eliminate per-sample sqrt/mul overhead.
@@ -50,7 +52,7 @@ The design is a **fully pipelined, streaming datapath** with ready/valid handsha
   Collects 8 running sufficient statistics [Σ1, ΣS, ΣS², ΣS³, ΣS⁴, Σy, ΣSy, ΣS²y] in 64‑bit registers using moneyness-normalized inputs (S/K ≈ 1.0) to prevent Q16.16 overflow. Paths are consumed and reduced immediately — no N‑sized buffer exists anywhere.
 - **Regression**: Deeply pipelined Gaussian elimination with pivoting; fallback to mean payoff if singular.  
 - **LSM decision**: Chooses between immediate exercise payoff and regression-estimated continuation value. Uses moneyness (S/K) for the continuation polynomial to keep inputs in Q16.16 range. Supports PUT/CALL via `option_type` flag.  
-- **UART interface**: Streams results to host. Result packet: marker `0xABCD0001` + price + cycle count (lo/hi).
+- **UART interface**: Streams results to host. Result packet: marker `0xABCD0002` + price + cycle count (lo/hi) + status flags (timeout, singular regression).
 
 ---
 
@@ -68,11 +70,13 @@ The design is a **fully pipelined, streaming datapath** with ready/valid handsha
 
 **Quick compile/simulate (recommended):**
 ```powershell
-./run_xvlog_src.ps1          # Compile (uses vivado -mode batch by default)
-./run_xelab_smoke.ps1       # Elaborate
-./run_tb_top_uart_safe.ps1  # Simulate (timeout mode)
-./run_tb_top_uart_safe.ps1 -ComputeMode  # Simulate (compute mode)
+./scripts/run_xvlog_src.ps1          # Compile (uses vivado -mode batch by default)
+./scripts/run_xelab_smoke.ps1       # Elaborate
+./scripts/run_tb_top_uart_safe.ps1  # Simulate (timeout mode)
+./scripts/run_tb_top_uart_safe.ps1 -ComputeMode  # Simulate (compute mode)
 ```
+
+Root-level `./run_xvlog_src.ps1` and `./run_xelab_smoke.ps1` are thin wrappers that call the same files under `scripts/`.
 
 If scripts time out, ensure Vivado is in PATH. Alternatively run directly:
 ```bash
@@ -99,22 +103,26 @@ python scripts/validate_numerical.py
 
 ### Running modes
 
-Two host-side modes are supported via `src/uart_host.py`:
+Three host-side modes are supported via `src/uart_host.py`:
 
 | Mode | Command | Purpose |
 |------|---------|---------|
 | **Benchmark** | `python src/uart_host.py --mode benchmark --target both --param-file baseline/cpp_fixed/params_example.txt` | Run CPU baseline and FPGA with identical params. Compare price, FPGA core cycles vs CPU wall time, speedup. UART I/O excluded from FPGA timing. |
 | **Live** | `python src/uart_host.py --mode live --target fpga` | Fetch real market data from Yahoo Finance, derive S0 and sigma, run pricing. Logs input snapshot. |
+| **Sweep** | `python src/uart_host.py --mode sweep --target cpu --param-file baseline/cpp_fixed/params_example.txt` | Convergence analysis: run at N=64,128,...,4096 and print price convergence table. |
 
 ### Current status
-- Top-level two-pass LSMC engine compiles and elaborates clean.
+- Top-level two-pass LSMC engine compiles and elaborates clean. **All modules fully synthesizable.**
 - **Numerical validation passed**: FPGA price = 6.553 vs C++ baseline = 6.50 (**0.8% relative error**).
 - 8 numerical bugs fixed in Phase 7 (see `VALIDATION.md` for details).
 - PUT/CALL runtime flag implemented (D1 complete).
 - Phase 4 complete: FSM fires Sobol for step k+1 in the same cycle GBM outputs step k.
-- Phase 6 complete: benchmark + live host modes in `uart_host.py`.
-- **Note**: `fxSqrt` and `fxLnLUT` use behavioral models (`$sqrt`/`$ln`) for simulation. Synthesizable RTL rewrites needed for FPGA deployment.
-- Next: synthesizable math module rewrites, richer error reporting (D2), FPGA hardware testing.
+- Phase 6 complete: benchmark + live + sweep host modes in `uart_host.py`.
+- **D2 complete**: 5-word result packet with status flags (timeout, singular regression).
+- **D3 complete**: Antithetic variates (paired z/−z paths) double effective path count.
+- **D4 complete**: Convergence sweep mode for empirical QMC convergence analysis.
+- **Precision centralization**: All FP constants from `fpga_cfg_pkg.sv`; elaboration assertions verify precomputed values.
+- Next: lane replication (D5), multi-exercise-date expansion, FPGA hardware testing.
 
 ---
 
@@ -141,14 +149,16 @@ Two host-side modes are supported via `src/uart_host.py`:
 - [x] Two running modes: benchmark (CPU vs FPGA comparison) + live (Yahoo Finance data).
 - [x] PUT/CALL runtime flag (D1) — 1-bit option_type through UART, top-level, and lsm_decision.
 - [x] **Numerical validation**: FPGA 6.553 vs C++ 6.50 = 0.8% error (8 bugs fixed in Phase 7).
-- [ ] Synthesizable fxSqrt rewrite (currently behavioral `$sqrt` model).
-- [ ] Synthesizable fxLnLUT rewrite (currently behavioral `$ln` model).
-- [ ] Richer error reporting in result packet (timeout, singular regression, saturation flags).
-- [ ] Antithetic variates (run z and −z per Sobol point, halves variance for free).
+- [x] Synthesizable fxSqrt rewrite (non-restoring digit-by-digit, 25 cycles, no DSP/LUT).
+- [x] Synthesizable fxLnLUT rewrite (3-stage pipeline, range decomposition + linear interpolation).
+- [x] Richer error reporting (D2): 5-word result packet with timeout/singular status flags.
+- [x] Precision centralization: all FP constants from `fpga_cfg_pkg.sv` with elaboration assertions.
+- [x] Antithetic variates (D3): paired z/−z paths double effective N for variance reduction.
+- [x] Convergence sweep mode (D4): `--mode sweep` for empirical QMC convergence analysis.
 - [ ] Lane replication (NUM_LANES > 1) for throughput scaling.
 - [ ] Multi-exercise-date expansion (full backward induction).
 
-> :warning: Active development — Phases 1-7 complete. fxSqrt/fxLnLUT need synthesizable rewrites for FPGA deployment. See `whats_next.md` for full status.
+> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See `whats_next.md` for full status.
 
 ---
 

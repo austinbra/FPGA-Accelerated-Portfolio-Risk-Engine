@@ -160,14 +160,15 @@ def print_params(params):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CPU/FPGA benchmark and live runner")
-    parser.add_argument("--mode", choices=["benchmark", "live"], required=True)
+    parser = argparse.ArgumentParser(description="CPU/FPGA benchmark, live runner, and convergence sweep")
+    parser.add_argument("--mode", choices=["benchmark", "live", "sweep"], required=True)
     parser.add_argument("--target", choices=["cpu", "fpga", "both"], required=True)
     parser.add_argument("--param-file", default="", help="Benchmark mode input file (key=value)")
     parser.add_argument("--symbol", default="SPY", help="Live mode symbol for Yahoo Finance")
     parser.add_argument("--strike", type=float, default=None, help="Live mode strike; default is ATM")
     parser.add_argument("--r", type=float, default=0.05, help="Risk-free rate for live mode")
     parser.add_argument("--maturity", type=float, default=1.0, help="Maturity in years for live mode")
+    parser.add_argument("--sweep-n", default="", help="Comma-separated N values for sweep mode (default: 64,128,256,512,1024,2048,4096)")
     parser.add_argument("--port", default="COM4", help="UART serial port")
     parser.add_argument("--baud", type=int, default=115200, help="UART baud rate")
     parser.add_argument("--timeout", type=float, default=2.0, help="UART read timeout seconds")
@@ -180,9 +181,9 @@ def main():
     repo_root = Path(__file__).resolve().parents[1]
     baseline_dir = repo_root / "baseline" / "cpp_fixed"
 
-    if args.mode == "benchmark":
+    if args.mode in ("benchmark", "sweep"):
         if not args.param_file:
-            raise ValueError("--param-file is required for benchmark mode.")
+            raise ValueError("--param-file is required for benchmark/sweep mode.")
         params = load_params_file(args.param_file)
     else:
         params = fetch_live_params(args.symbol, args.strike, args.r, args.maturity)
@@ -251,6 +252,50 @@ def main():
         else:
             print("[FPGA] no result payload received.")
         print(f"[FPGA] uart_roundtrip_s={uart_elapsed:.6f}")
+
+    # Sweep mode: run at increasing N and print convergence table
+    if args.mode == "sweep":
+        sweep_ns = [64, 128, 256, 512, 1024, 2048, 4096]
+        if args.sweep_n:
+            sweep_ns = [int(x.strip()) for x in args.sweep_n.split(",")]
+
+        rows = []
+        prev_price = None
+        print("\n" + "=" * 60)
+        print("CONVERGENCE SWEEP")
+        print("=" * 60)
+        for n in sweep_ns:
+            params_n = dict(params)
+            params_n["paths"] = n
+            price, elapsed = None, None
+            if args.target in ("cpu", "both"):
+                try:
+                    _, price, elapsed = run_cpu_baseline(params_n, str(baseline_dir))
+                except Exception as e:
+                    print(f"  N={n}: CPU error: {e}")
+                    continue
+            if args.target in ("fpga", "both"):
+                try:
+                    _, extra, uart_elapsed = send_params_uart(params_n, args.port, args.baud, args.timeout)
+                    if len(extra) >= 4 and extra[0] in (0xABCD0001, 0xABCD0002):
+                        price = q16_16_to_float(int(extra[1]))
+                        elapsed = uart_elapsed
+                except Exception as e:
+                    print(f"  N={n}: FPGA error: {e}")
+                    continue
+            if price is not None:
+                delta = abs(price - prev_price) if prev_price is not None else float("inf")
+                rows.append((n, price, delta, elapsed))
+                prev_price = price
+
+        print(f"\n{'N':>6}  {'Price':>12}  {'Delta':>12}  {'Time(s)':>10}")
+        print("-" * 48)
+        for n, p, d, t in rows:
+            d_str = f"{d:.6f}" if d != float("inf") else "---"
+            t_str = f"{t:.4f}" if t is not None else "---"
+            print(f"{n:6d}  {p:12.6f}  {d_str:>12}  {t_str:>10}")
+        print("=" * 60)
+        return
 
     # Benchmark comparison report (when both targets run)
     if args.mode == "benchmark" and args.target == "both" and cpu_price is not None and fpga_price is not None:

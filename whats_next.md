@@ -44,11 +44,9 @@ All pipeline modules are **complete and fully synthesizable**. No behavioral mod
 - **Where**: `src/top/top_option_pricer.sv` — generate blocks, sum merging
 - **Impact**: Linear throughput scaling. With 33 DSP/lane and 120 available, max ~3 lanes.
 - **Effort**: ~100-200 lines
-- **Progress (2026-03-22)**:
-  - Added D5 scaffolding in top-level (`NUM_LANES` parameter + centralized path->Sobol/antithetic mapping helpers + elaboration guard messages).
-  - Implemented replicated lane RTL generation for Sobol/InverseCDF/GBM (`for`-generate over `NUM_LANES`) with active-lane signal muxing.
-  - Added lane-bundle scheduler: active-lane mask + active-lane count per bundle, concurrent per-step launches/collects across active lanes, and lane-serialized feed into accumulator/LSM with bundle-based path advancement.
-  - Current limitation: feed/merge is still serialized per lane after each bundle; next step is full overlapped lane feed/merge buffering.
+- **Status (2026-03-22)**:
+  - A large D5 drop caused a major numerical regression vs the C++ baseline; the pricer RTL + matching UART TB were restored to the last known-good slice (see git history, March 2026 baseline restore).
+  - **Next**: Re-land D5 in **small steps** after every change: `./scripts/run_xvlog_src.ps1`, `./scripts/run_xelab_smoke.ps1`, `./scripts/run_tb_top_uart_safe.ps1 -ComputeMode`, and `python scripts/validate_numerical.py` (≤1% error). Bisect any math or scheduling change that breaks the numerical check before stacking more features.
 
 ### Priority 2: Multi-Exercise-Date Expansion
 - **What**: Full backward induction with M-1 regression passes

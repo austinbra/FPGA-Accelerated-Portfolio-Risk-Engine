@@ -47,7 +47,7 @@ def run_fpga_sim(paths, steps, S0, K, r, sigma, T, repo_root):
     Run FPGA simulation (xvlog, xelab, xsim) and parse price from output.
     Params must match TB's run_one_batch (paths=64, steps=12, etc.).
     """
-    script = repo_root / "run_tb_top_uart_safe.ps1"
+    script = repo_root / "scripts" / "run_tb_top_uart_safe.ps1"
     if not script.exists():
         raise FileNotFoundError(f"run_tb_top_uart_safe.ps1 not found at {script}")
 
