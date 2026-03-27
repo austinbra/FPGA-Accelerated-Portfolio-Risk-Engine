@@ -34,4 +34,4 @@ Smoke elaboration may use `src/sim/fxDiv_core_stub.sv` when the generated `fxDiv
 
 ## Status pointer
 
-Feature and roadmap detail: `whats_next.md`.
+What is implemented: `IMPLEMENTATION_STATUS.md`. Planned work: `ROADMAP.md`.

@@ -24,7 +24,8 @@ module top_mc_option_pricer #(
     parameter int CLK_FREQ_HZ            = 100_000_000,
     parameter int BAUD_RATE              = 115200,
     parameter int unsigned CORE_MAX_CYCLES = 32'd50_000_000,
-    parameter int MAX_STEPS              = 50
+    parameter int MAX_STEPS              = 50,
+    parameter int NUM_LANES              = 1
 )(
     input  logic clk_100,
     input  logic rst_btn_n,
@@ -107,9 +108,19 @@ module top_mc_option_pricer #(
     // Path/step counters
     logic [15:0]         path_idx;
     logic [7:0]          step_idx;
-    logic signed [W-1:0] s_curr;
-    logic signed [W-1:0] s_exercise;
-    logic signed [W-1:0] s_terminal;
+    logic signed [W-1:0] lane_s_curr [0:NUM_LANES-1];
+
+    // Per-lane path state (exercise-date and terminal stock prices)
+    localparam int LANE_IDX_W = (NUM_LANES > 1) ? $clog2(NUM_LANES) : 1;
+    logic signed [W-1:0] lane_s_exercise [0:NUM_LANES-1];
+    logic signed [W-1:0] lane_s_terminal [0:NUM_LANES-1];
+    logic [LANE_IDX_W-1:0] lane_feed_idx;
+
+    // Feed muxes: serialize per-lane results for accumulator / LSM
+    logic signed [W-1:0] feed_s_exercise;
+    logic signed [W-1:0] feed_s_terminal;
+    assign feed_s_exercise = lane_s_exercise[lane_feed_idx];
+    assign feed_s_terminal = lane_s_terminal[lane_feed_idx];
 
     // Accumulation for decision pass average
     logic signed [63:0]  sum_pv;
@@ -192,66 +203,97 @@ module top_mc_option_pricer #(
     assign util_sqrt_rin = 1'b1;
 
     // =========================================================================
-    // Pipeline: sobol -> inverseCDF -> GBM
+    // Pipeline: sobol -> inverseCDF -> GBM  (NUM_LANES replicated copies)
     // =========================================================================
-    logic                    sobol_vin, sobol_rout, sobol_vout;
+    // FSM-facing scalars (aliased to lane 0)
+    logic                    sobol_vin, sobol_rout;
     logic [W-1:0]            sobol_idx;
     logic [$clog2(MAX_STEPS)-1:0] sobol_dim;
-    logic [W-1:0]            sobol_out;
-    logic [W-1:0]            sobol_direction [0:MAX_STEPS*W-1];
-
-    logic                    inv_vout, inv_rout;
-    logic signed [W-1:0]    inv_z;
-
-    logic                    gbm_vout, gbm_rout;
+    logic                    gbm_vout;
     logic signed [W-1:0]    gbm_s_next;
+    logic                    inv_vout;
 
-    // Pipeline ready chain
-    logic                    pipe_ready_in;
+    // Per-lane pipeline interface arrays
+    logic                    lane_sobol_vin  [0:NUM_LANES-1];
+    logic                    lane_sobol_rout [0:NUM_LANES-1];
+    logic [W-1:0]            lane_sobol_idx  [0:NUM_LANES-1];
+    logic [$clog2(MAX_STEPS)-1:0] lane_sobol_dim [0:NUM_LANES-1];
+    logic                    lane_gbm_vout   [0:NUM_LANES-1];
+    logic signed [W-1:0]    lane_gbm_s_next [0:NUM_LANES-1];
+    logic                    lane_inv_vout   [0:NUM_LANES-1];
 
-    sobol #(.M(MAX_STEPS)) u_sobol (
-        .clk       (clk_100),
-        .rst_n     (rst_btn_n),
-        .valid_in  (sobol_vin),
-        .ready_out (sobol_rout),
-        .valid_out (sobol_vout),
-        .ready_in  (inv_rout),
-        .idx_in    (sobol_idx),
-        .dim_in    (sobol_dim),
-        .sobol_out (sobol_out),
-        .direction (sobol_direction)
-    );
+    // Lane-0 read aliases (pipeline outputs → FSM)
+    assign sobol_rout = lane_sobol_rout[0];
+    assign gbm_vout   = lane_gbm_vout[0];
+    assign gbm_s_next = lane_gbm_s_next[0];
+    assign inv_vout   = lane_inv_vout[0];
 
-    logic signed [W-1:0] sobol_q16;
-    assign sobol_q16 = $signed({16'd0, sobol_out[31:16]});  // Q0.32 → Q16.16
+    // Lane-0 write aliases (FSM scalars → pipeline inputs)
+    assign lane_sobol_vin[0] = sobol_vin;
+    assign lane_sobol_idx[0] = sobol_idx;
+    assign lane_sobol_dim[0] = sobol_dim;
 
-    inverseCDF u_inv (
-        .clk       (clk_100),
-        .rst_n     (rst_btn_n),
-        .valid_in  (sobol_vout),
-        .ready_out (inv_rout),
-        .u_in      (sobol_q16),
-        .valid_out (inv_vout),
-        .ready_in  (gbm_rout),
-        .z_out     (inv_z)
-    );
+    // Tie off inactive lanes (driven by FSM when multi-lane scheduling is added)
+    generate
+    for (genvar ti = 1; ti < NUM_LANES; ti++) begin : gen_tieoff
+        assign lane_sobol_vin[ti] = 1'b0;
+        assign lane_sobol_idx[ti] = '0;
+        assign lane_sobol_dim[ti] = '0;
+    end
+    endgenerate
 
-    GBM u_gbm (
-        .clk         (clk_100),
-        .rst_n       (rst_btn_n),
-        .valid_in    (inv_vout),
-        .ready_out   (gbm_rout),
-        .valid_out   (gbm_vout),
-        .ready_in    (pipe_ready_in),
-        .z           (inv_z),
-        .S           (s_curr),
-        .drift_const (drift_const_reg),
-        .vol_sqrt_dt (vol_sqrt_dt_reg),
-        .S_next      (gbm_s_next)
-    );
+    // Replicated pipeline instances
+    generate
+    for (genvar ln = 0; ln < NUM_LANES; ln++) begin : gen_lane
+        logic sobol_vout_i;
+        logic [W-1:0] sobol_out_i;
+        logic [W-1:0] sobol_direction_i [0:MAX_STEPS*W-1];
+        logic signed [W-1:0] sobol_q16_i;
+        logic inv_rout_i;
+        logic signed [W-1:0] inv_z_i;
+        logic gbm_rout_i;
 
-    // FSM always accepts GBM output when it arrives
-    assign pipe_ready_in = 1'b1;
+        sobol #(.M(MAX_STEPS)) u_sobol (
+            .clk       (clk_100),
+            .rst_n     (rst_btn_n),
+            .valid_in  (lane_sobol_vin[ln]),
+            .ready_out (lane_sobol_rout[ln]),
+            .valid_out (sobol_vout_i),
+            .ready_in  (inv_rout_i),
+            .idx_in    (lane_sobol_idx[ln]),
+            .dim_in    (lane_sobol_dim[ln]),
+            .sobol_out (sobol_out_i),
+            .direction (sobol_direction_i)
+        );
+
+        assign sobol_q16_i = $signed({16'd0, sobol_out_i[31:16]});
+
+        inverseCDF u_inv (
+            .clk       (clk_100),
+            .rst_n     (rst_btn_n),
+            .valid_in  (sobol_vout_i),
+            .ready_out (inv_rout_i),
+            .u_in      (sobol_q16_i),
+            .valid_out (lane_inv_vout[ln]),
+            .ready_in  (gbm_rout_i),
+            .z_out     (inv_z_i)
+        );
+
+        GBM u_gbm (
+            .clk         (clk_100),
+            .rst_n       (rst_btn_n),
+            .valid_in    (lane_inv_vout[ln]),
+            .ready_out   (gbm_rout_i),
+            .valid_out   (lane_gbm_vout[ln]),
+            .ready_in    (1'b1),
+            .z           (inv_z_i),
+            .S           (lane_s_curr[ln]),
+            .drift_const (drift_const_reg),
+            .vol_sqrt_dt (vol_sqrt_dt_reg),
+            .S_next      (lane_gbm_s_next[ln])
+        );
+    end
+    endgenerate
 
     // =========================================================================
     // Accumulator (training pass)
@@ -287,7 +329,7 @@ module top_mc_option_pricer #(
         .valid_out   (lsm_vout),
         .ready_in    (lsm_rin),
         .ready_out   (lsm_rout),
-        .S_t         (s_exercise),
+        .S_t         (feed_s_exercise),
         .s_norm      (s_norm_reg),
         .beta        (beta_reg),
         .strike      (lat_K),
@@ -302,8 +344,8 @@ module top_mc_option_pricer #(
     // =========================================================================
     logic signed [W-1:0] terminal_payoff;
     assign terminal_payoff = lat_option_type
-        ? ((lat_K > s_terminal) ? (lat_K - s_terminal) : '0)   // PUT
-        : ((s_terminal > lat_K) ? (s_terminal - lat_K) : '0);  // CALL
+        ? ((lat_K > feed_s_terminal) ? (lat_K - feed_s_terminal) : '0)   // PUT
+        : ((feed_s_terminal > lat_K) ? (feed_s_terminal - lat_K) : '0);  // CALL
 
     // =========================================================================
     // Main FSM
@@ -329,9 +371,12 @@ module top_mc_option_pricer #(
             batch_ready     <= 1'b1;
             path_idx        <= '0;
             step_idx        <= '0;
-            s_curr          <= '0;
-            s_exercise      <= '0;
-            s_terminal      <= '0;
+            lane_feed_idx   <= '0;
+            for (int ln = 0; ln < NUM_LANES; ln++) begin
+                lane_s_curr[ln]     <= '0;
+                lane_s_exercise[ln] <= '0;
+                lane_s_terminal[ln] <= '0;
+            end
             sum_pv          <= '0;
             dt_reg          <= '0;
             drift_const_reg <= '0;
@@ -547,7 +592,7 @@ module top_mc_option_pricer #(
                         // disc_total = disc^(M-1) complete
                         path_idx       <= '0;
                         step_idx       <= '0;
-                        s_curr         <= lat_S0;
+                        lane_s_curr[0] <= lat_S0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_STEP;
                     end
@@ -568,16 +613,14 @@ module top_mc_option_pricer #(
                     sobol_vin      <= 1'b1;
                     sobol_accepted <= 1'b1;
                 end else if (sobol_accepted && gbm_vout) begin
-                    // Phase B: collect GBM result, update s_curr/step_idx
                     if (step_idx == lat_M - 2)
-                        s_exercise <= gbm_s_next;
+                        lane_s_exercise[0] <= gbm_s_next;
 
-                    s_curr   <= gbm_s_next;
-                    step_idx <= step_idx + 1'b1;
+                    lane_s_curr[0] <= gbm_s_next;
+                    step_idx       <= step_idx + 1'b1;
 
                     if (step_idx == lat_M - 1) begin
-                        // Terminal step: path complete, go to TRAIN_FEED
-                        s_terminal     <= gbm_s_next;
+                        lane_s_terminal[0] <= gbm_s_next;
                         sub_phase      <= '0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_FEED;
@@ -606,10 +649,10 @@ module top_mc_option_pricer #(
                     util_mul_vin <= 1'b1;
                     sub_phase     <= 3'd1;
                 end
-                // sub 1: store cont_value, fire s_exercise * inv_K
+                // sub 1: store cont_value, fire feed_s_exercise * inv_K
                 else if (sub_phase == 1 && util_mul_vout) begin
                     acc_y        <= util_mul_result;
-                    util_mul_a   <= s_exercise;
+                    util_mul_a   <= feed_s_exercise;
                     util_mul_b   <= inv_K_reg;
                     util_mul_vin <= 1'b1;
                     sub_phase     <= 3'd2;
@@ -626,7 +669,7 @@ module top_mc_option_pricer #(
                             state <= ST_WAIT_BETA;
                         end else begin
                             step_idx       <= '0;
-                            s_curr         <= lat_S0;
+                            lane_s_curr[0] <= lat_S0;
                             sobol_accepted <= 1'b0;
                             state          <= ST_TRAIN_STEP;
                         end
@@ -645,7 +688,7 @@ module top_mc_option_pricer #(
                         beta_reg[i] <= acc_beta[i];
                     path_idx       <= '0;
                     step_idx       <= '0;
-                    s_curr         <= lat_S0;
+                    lane_s_curr[0] <= lat_S0;
                     sobol_accepted <= 1'b0;
                     sum_pv         <= '0;
                     state          <= ST_DECIDE_STEP;
@@ -665,13 +708,13 @@ module top_mc_option_pricer #(
                     sobol_accepted <= 1'b1;
                 end else if (sobol_accepted && gbm_vout) begin
                     if (step_idx == lat_M - 2)
-                        s_exercise <= gbm_s_next;
+                        lane_s_exercise[0] <= gbm_s_next;
 
-                    s_curr   <= gbm_s_next;
-                    step_idx <= step_idx + 1'b1;
+                    lane_s_curr[0] <= gbm_s_next;
+                    step_idx       <= step_idx + 1'b1;
 
                     if (step_idx == lat_M - 1) begin
-                        s_terminal     <= gbm_s_next;
+                        lane_s_terminal[0] <= gbm_s_next;
                         sub_phase      <= '0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_DECIDE_FEED;
@@ -699,10 +742,10 @@ module top_mc_option_pricer #(
                     util_mul_vin <= 1'b1;
                     sub_phase     <= 3'd1;
                 end
-                // sub 1: store cont_value, fire s_exercise * inv_K
+                // sub 1: store cont_value, fire feed_s_exercise * inv_K
                 else if (sub_phase == 1 && util_mul_vout) begin
                     acc_y        <= util_mul_result;
-                    util_mul_a   <= s_exercise;
+                    util_mul_a   <= feed_s_exercise;
                     util_mul_b   <= inv_K_reg;
                     util_mul_vin <= 1'b1;
                     sub_phase     <= 3'd2;
@@ -732,7 +775,7 @@ module top_mc_option_pricer #(
                         state <= ST_FINAL_DIV;
                     end else begin
                         step_idx       <= '0;
-                        s_curr         <= lat_S0;
+                        lane_s_curr[0] <= lat_S0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_DECIDE_STEP;
                     end

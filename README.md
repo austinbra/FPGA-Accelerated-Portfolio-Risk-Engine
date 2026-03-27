@@ -14,7 +14,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 
 ## Validation And Status
 - Validation log: `VALIDATION.md` (commands run, results, known gaps).
-- Active implementation tracker: `whats_next.md`.
+- Implementation snapshot: `IMPLEMENTATION_STATUS.md`. Planned work: `ROADMAP.md`.
 - Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete.
 
 ---
@@ -158,7 +158,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 - [ ] Lane replication (NUM_LANES > 1) for throughput scaling.
 - [ ] Multi-exercise-date expansion (full backward induction).
 
-> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See `whats_next.md` for full status.
+> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See `IMPLEMENTATION_STATUS.md` for what is built; `ROADMAP.md` for next priorities.
 
 ---
 
