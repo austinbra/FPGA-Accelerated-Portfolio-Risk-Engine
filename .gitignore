@@ -35,7 +35,7 @@ build/
 *.vcxproj*
 *.sln
 *.suo
-*.user
+# Do not use bare *.user here: it matches a directory named ".user" (* can be empty).
 *.vcxproj.user
 
 # VS Code
@@ -106,7 +106,8 @@ vault/
 # -------------------------
 # 6) Cursor / local AI workspace ("memory layer")
 # -------------------------
-# Rules, agent context, and similar stay local so the public repo reads as
-# normal project history only.
-.cursor/
+# Rules and agent context stay local; only the human index is tracked.
+# (Cannot re-include a file under an ignored parent; ignore contents, not the dir.)
+.cursor/*
+!.cursor/README.md
 .specstory/

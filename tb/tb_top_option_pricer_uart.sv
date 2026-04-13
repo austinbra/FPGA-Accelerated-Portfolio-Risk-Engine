@@ -2,7 +2,8 @@
 
 module tb_top_option_pricer_uart_core #(
     parameter bit EXPECT_TIMEOUT = 1'b1,
-    parameter int NUM_BATCHES = 1
+    parameter int NUM_BATCHES = 1,
+    parameter int NUM_LANES = 1
 );
     parameter int CLK_FREQ_HZ = 100_000_000;
     parameter int BAUD_RATE   = 115200;
@@ -78,7 +79,8 @@ module tb_top_option_pricer_uart_core #(
     top_mc_option_pricer #(
         .CLK_FREQ_HZ(CLK_FREQ_HZ),
         .BAUD_RATE  (BAUD_RATE),
-        .CORE_MAX_CYCLES(DUT_CORE_MAX_CYCLES)
+        .CORE_MAX_CYCLES(DUT_CORE_MAX_CYCLES),
+        .NUM_LANES  (NUM_LANES)
     ) dut (
         .clk_100  (clk),
         .rst_btn_n(rst_n),
@@ -323,6 +325,30 @@ endmodule
 module tb_top_option_pricer_uart_compute;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+// Same as compute mode but NUM_LANES=2 (xelab -generic_top splits on '=' on some hosts).
+module tb_top_option_pricer_uart_compute_lanes2;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0),
+        .NUM_LANES  (2)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+// Same as compute mode but NUM_LANES=3 (wrapper avoids generic override parsing issues).
+module tb_top_option_pricer_uart_compute_lanes3;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0),
+        .NUM_LANES  (3)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+// Same as compute mode but NUM_LANES=4 (wrapper avoids generic override parsing issues).
+module tb_top_option_pricer_uart_compute_lanes4;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0),
+        .NUM_LANES  (4)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 

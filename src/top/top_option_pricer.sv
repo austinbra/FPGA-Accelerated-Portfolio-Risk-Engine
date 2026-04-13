@@ -210,7 +210,6 @@ module top_mc_option_pricer #(
     logic [W-1:0]            sobol_idx;
     logic [$clog2(MAX_STEPS)-1:0] sobol_dim;
     logic                    gbm_vout;
-    logic signed [W-1:0]    gbm_s_next;
     logic                    inv_vout;
 
     // Per-lane pipeline interface arrays
@@ -222,23 +221,22 @@ module top_mc_option_pricer #(
     logic signed [W-1:0]    lane_gbm_s_next [0:NUM_LANES-1];
     logic                    lane_inv_vout   [0:NUM_LANES-1];
 
-    // Lane-0 read aliases (pipeline outputs → FSM)
-    assign sobol_rout = lane_sobol_rout[0];
-    assign gbm_vout   = lane_gbm_vout[0];
-    assign gbm_s_next = lane_gbm_s_next[0];
-    assign inv_vout   = lane_inv_vout[0];
+    // All lanes must agree before a broadcast sobol fire.
+    always_comb begin
+        sobol_rout = 1'b1;
+        for (int ii = 0; ii < NUM_LANES; ii++)
+            sobol_rout &= lane_sobol_rout[ii];
+    end
+    // Plan D5: identical per-lane latency -> lane0 valid implies all lanes' S_next are aligned.
+    assign gbm_vout = lane_gbm_vout[0];
+    assign inv_vout = lane_inv_vout[0];
 
-    // Lane-0 write aliases (FSM scalars → pipeline inputs)
-    assign lane_sobol_vin[0] = sobol_vin;
-    assign lane_sobol_idx[0] = sobol_idx;
-    assign lane_sobol_dim[0] = sobol_dim;
-
-    // Tie off inactive lanes (driven by FSM when multi-lane scheduling is added)
+    // Broadcast FSM sobol request to all lanes (lane ln uses path path_idx + ln).
     generate
-    for (genvar ti = 1; ti < NUM_LANES; ti++) begin : gen_tieoff
-        assign lane_sobol_vin[ti] = 1'b0;
-        assign lane_sobol_idx[ti] = '0;
-        assign lane_sobol_dim[ti] = '0;
+    for (genvar ln = 0; ln < NUM_LANES; ln++) begin : gen_sobol_drive
+        assign lane_sobol_vin[ln]  = sobol_vin;
+        assign lane_sobol_idx[ln]  = {16'd0, path_idx} + W'(ln);
+        assign lane_sobol_dim[ln] = sobol_dim;
     end
     endgenerate
 
@@ -292,6 +290,7 @@ module top_mc_option_pricer #(
             .vol_sqrt_dt (vol_sqrt_dt_reg),
             .S_next      (lane_gbm_s_next[ln])
         );
+
     end
     endgenerate
 
@@ -356,6 +355,8 @@ module top_mc_option_pricer #(
 
     // Track whether sobol request was accepted (to avoid double-fire)
     logic sobol_accepted;
+    // Drain counter: ignore GBM echo pulses for a few cycles after each collect
+    logic [2:0] drain_cnt;
 
     // Timeout
     logic core_timeout;
@@ -388,6 +389,7 @@ module top_mc_option_pricer #(
             sub_phase        <= '0;
             disc_pow_cnt    <= '0;
             sobol_accepted  <= 1'b0;
+            drain_cnt       <= '0;
             sobol_vin       <= 1'b0;
             sobol_idx       <= '0;
             sobol_dim       <= '0;
@@ -414,6 +416,7 @@ module top_mc_option_pricer #(
             // Default: clear one-cycle pulses
             result_valid   <= 1'b0;
             sobol_vin      <= 1'b0;
+            if (drain_cnt > 0) drain_cnt <= drain_cnt - 1;
             acc_vin        <= 1'b0;
             lsm_vin        <= 1'b0;
             util_mul_vin   <= 1'b0;
@@ -592,7 +595,9 @@ module top_mc_option_pricer #(
                         // disc_total = disc^(M-1) complete
                         path_idx       <= '0;
                         step_idx       <= '0;
-                        lane_s_curr[0] <= lat_S0;
+                        lane_feed_idx  <= '0;
+                        for (int ln = 0; ln < NUM_LANES; ln++)
+                            lane_s_curr[ln] <= lat_S0;
                         sobol_accepted <= 1'b0;
                         state          <= ST_TRAIN_STEP;
                     end
@@ -606,24 +611,28 @@ module top_mc_option_pricer #(
             ST_TRAIN_STEP: begin
                 if (core_timeout) begin
                     state <= ST_DONE;
-                end else if (!sobol_accepted && sobol_rout) begin
+                end else if (!sobol_accepted && sobol_rout && !gbm_vout && drain_cnt == 0) begin
                     // Phase A: fire sobol for this step (path start or first step)
                     sobol_idx      <= {16'd0, path_idx};
                     sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0];
                     sobol_vin      <= 1'b1;
                     sobol_accepted <= 1'b1;
-                end else if (sobol_accepted && gbm_vout) begin
-                    if (step_idx == lat_M - 2)
-                        lane_s_exercise[0] <= gbm_s_next;
-
-                    lane_s_curr[0] <= gbm_s_next;
+                end else if (sobol_accepted && gbm_vout && drain_cnt == 0) begin
+                    for (int ln = 0; ln < NUM_LANES; ln++) begin
+                        if (step_idx == lat_M - 2)
+                            lane_s_exercise[ln] <= lane_gbm_s_next[ln];
+                        lane_s_curr[ln] <= lane_gbm_s_next[ln];
+                    end
                     step_idx       <= step_idx + 1'b1;
+                    drain_cnt      <= 3'd5;
 
                     if (step_idx == lat_M - 1) begin
-                        lane_s_terminal[0] <= gbm_s_next;
-                        sub_phase      <= '0;
-                        sobol_accepted <= 1'b0;
-                        state          <= ST_TRAIN_FEED;
+                        for (int ln = 0; ln < NUM_LANES; ln++)
+                            lane_s_terminal[ln] <= lane_gbm_s_next[ln];
+                        sub_phase       <= '0;
+                        lane_feed_idx   <= '0;
+                        sobol_accepted  <= 1'b0;
+                        state           <= ST_TRAIN_FEED;
                     end else if (sobol_rout) begin
                         sobol_idx      <= {16'd0, path_idx};
                         sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
@@ -661,17 +670,24 @@ module top_mc_option_pricer #(
                 else if (sub_phase == 2 && util_mul_vout) begin
                     acc_x  <= util_mul_result;   // normalized S/K
                     if (acc_rout) begin
-                        acc_vin  <= 1'b1;
-                        path_idx <= path_idx + 1'b1;
+                        acc_vin   <= 1'b1;
                         sub_phase <= '0;
-
-                        if (path_idx + 1 >= lat_N) begin
-                            state <= ST_WAIT_BETA;
+                        // Use (NUM_LANES-1) without LANE_IDX_W' cast: LANE_IDX_W'(NUM_LANES-1)
+                        // can misparsed/truncate (e.g. 1-bit cast of NUM_LANES before -1) and skip lanes.
+                        if (lane_feed_idx != (NUM_LANES - 1)) begin
+                            lane_feed_idx <= lane_feed_idx + 1'b1;
                         end else begin
-                            step_idx       <= '0;
-                            lane_s_curr[0] <= lat_S0;
-                            sobol_accepted <= 1'b0;
-                            state          <= ST_TRAIN_STEP;
+                            lane_feed_idx <= '0;
+                            path_idx      <= path_idx + 16'(NUM_LANES);
+                            if (path_idx + NUM_LANES >= lat_N) begin
+                                state <= ST_WAIT_BETA;
+                            end else begin
+                                step_idx <= '0;
+                                for (int ln = 0; ln < NUM_LANES; ln++)
+                                    lane_s_curr[ln] <= lat_S0;
+                                sobol_accepted <= 1'b0;
+                                state          <= ST_TRAIN_STEP;
+                            end
                         end
                     end
                 end
@@ -688,7 +704,9 @@ module top_mc_option_pricer #(
                         beta_reg[i] <= acc_beta[i];
                     path_idx       <= '0;
                     step_idx       <= '0;
-                    lane_s_curr[0] <= lat_S0;
+                    lane_feed_idx  <= '0;
+                    for (int ln = 0; ln < NUM_LANES; ln++)
+                        lane_s_curr[ln] <= lat_S0;
                     sobol_accepted <= 1'b0;
                     sum_pv         <= '0;
                     state          <= ST_DECIDE_STEP;
@@ -701,23 +719,27 @@ module top_mc_option_pricer #(
             ST_DECIDE_STEP: begin
                 if (core_timeout) begin
                     state <= ST_DONE;
-                end else if (!sobol_accepted && sobol_rout) begin
+                end else if (!sobol_accepted && sobol_rout && !gbm_vout && drain_cnt == 0) begin
                     sobol_idx      <= {16'd0, path_idx};
                     sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0];
                     sobol_vin      <= 1'b1;
                     sobol_accepted <= 1'b1;
-                end else if (sobol_accepted && gbm_vout) begin
-                    if (step_idx == lat_M - 2)
-                        lane_s_exercise[0] <= gbm_s_next;
-
-                    lane_s_curr[0] <= gbm_s_next;
+                end else if (sobol_accepted && gbm_vout && drain_cnt == 0) begin
+                    for (int ln = 0; ln < NUM_LANES; ln++) begin
+                        if (step_idx == lat_M - 2)
+                            lane_s_exercise[ln] <= lane_gbm_s_next[ln];
+                        lane_s_curr[ln] <= lane_gbm_s_next[ln];
+                    end
                     step_idx       <= step_idx + 1'b1;
+                    drain_cnt      <= 3'd5;
 
                     if (step_idx == lat_M - 1) begin
-                        lane_s_terminal[0] <= gbm_s_next;
-                        sub_phase      <= '0;
-                        sobol_accepted <= 1'b0;
-                        state          <= ST_DECIDE_FEED;
+                        for (int ln = 0; ln < NUM_LANES; ln++)
+                            lane_s_terminal[ln] <= lane_gbm_s_next[ln];
+                        sub_phase       <= '0;
+                        lane_feed_idx   <= '0;
+                        sobol_accepted  <= 1'b0;
+                        state           <= ST_DECIDE_FEED;
                     end else if (sobol_rout) begin
                         sobol_idx      <= {16'd0, path_idx};
                         sobol_dim      <= step_idx[$clog2(MAX_STEPS)-1:0] + 1'b1;
@@ -767,17 +789,22 @@ module top_mc_option_pricer #(
                 end
                 // sub 4: accumulate discounted PV
                 else if (sub_phase == 4 && util_mul_vout) begin
-                    sum_pv   <= sum_pv + {{(64-W){util_mul_result[W-1]}}, util_mul_result};
-                    path_idx <= path_idx + 1'b1;
+                    sum_pv    <= sum_pv + {{(64-W){util_mul_result[W-1]}}, util_mul_result};
                     sub_phase <= '0;
-
-                    if (path_idx + 1 >= lat_N) begin
-                        state <= ST_FINAL_DIV;
+                    if (lane_feed_idx != (NUM_LANES - 1)) begin
+                        lane_feed_idx <= lane_feed_idx + 1'b1;
                     end else begin
-                        step_idx       <= '0;
-                        lane_s_curr[0] <= lat_S0;
-                        sobol_accepted <= 1'b0;
-                        state          <= ST_DECIDE_STEP;
+                        lane_feed_idx <= '0;
+                        path_idx      <= path_idx + 16'(NUM_LANES);
+                        if (path_idx + NUM_LANES >= lat_N) begin
+                            state <= ST_FINAL_DIV;
+                        end else begin
+                            step_idx <= '0;
+                            for (int ln = 0; ln < NUM_LANES; ln++)
+                                lane_s_curr[ln] <= lat_S0;
+                            sobol_accepted <= 1'b0;
+                            state          <= ST_DECIDE_STEP;
+                        end
                     end
                 end
             end

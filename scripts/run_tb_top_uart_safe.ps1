@@ -10,7 +10,8 @@ param(
     [switch]$NoCleanup,
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
-    [switch]$DebugReg    # -d REG_DEBUG for regression pipeline tracing
+    [switch]$DebugReg,   # -d REG_DEBUG for regression pipeline tracing
+    [int]$NumLanes = 1   # 1 = default; 2 selects tb_top_option_pricer_uart_compute_lanes2 (see .user/VALIDATION.md)
 )
 
 $ErrorActionPreference = "Stop"
@@ -90,8 +91,19 @@ if ($Multibatch) {
     $top = "work.tb_top_option_pricer_uart_multibatch"
     $snap = "tb_top_option_pricer_uart_multibatch_sim"
 } elseif ($ComputeMode) {
-    $top = "work.tb_top_option_pricer_uart_compute"
-    $snap = "tb_top_option_pricer_uart_compute_sim"
+    if ($NumLanes -eq 2) {
+        $top = "work.tb_top_option_pricer_uart_compute_lanes2"
+        $snap = "tb_top_option_pricer_uart_compute_lanes2_sim"
+    } elseif ($NumLanes -eq 3) {
+        $top = "work.tb_top_option_pricer_uart_compute_lanes3"
+        $snap = "tb_top_option_pricer_uart_compute_lanes3_sim"
+    } elseif ($NumLanes -eq 4) {
+        $top = "work.tb_top_option_pricer_uart_compute_lanes4"
+        $snap = "tb_top_option_pricer_uart_compute_lanes4_sim"
+    } else {
+        $top = "work.tb_top_option_pricer_uart_compute"
+        $snap = "tb_top_option_pricer_uart_compute_sim"
+    }
 } else {
     $top = "work.tb_top_option_pricer_uart"
     $snap = "tb_top_option_pricer_uart_sim"

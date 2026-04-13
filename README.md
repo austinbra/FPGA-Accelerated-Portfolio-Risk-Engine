@@ -13,8 +13,10 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 ---
 
 ## Validation And Status
-- Validation log: `VALIDATION.md` (commands run, results, known gaps).
-- Implementation snapshot: `IMPLEMENTATION_STATUS.md`. Planned work: `ROADMAP.md`.
+- User notes index: `.user/README.md`
+- Cursor / AI rules index: `.cursor/README.md`
+- Validation log: `.user/VALIDATION.md` (commands run, results, known gaps).
+- Implementation snapshot: `.user/IMPLEMENTATION_STATUS.md`. Planned work: `.user/ROADMAP.md`.
 - Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete.
 
 ---
@@ -114,7 +116,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 ### Current status
 - Top-level two-pass LSMC engine compiles and elaborates clean. **All modules fully synthesizable.**
 - **Numerical validation passed**: FPGA price = 6.553 vs C++ baseline = 6.50 (**0.8% relative error**).
-- 8 numerical bugs fixed in Phase 7 (see `VALIDATION.md` for details).
+- 8 numerical bugs fixed in Phase 7 (see `.user/VALIDATION.md` for details).
 - PUT/CALL runtime flag implemented (D1 complete).
 - Phase 4 complete: FSM fires Sobol for step k+1 in the same cycle GBM outputs step k.
 - Phase 6 complete: benchmark + live + sweep host modes in `uart_host.py`.
@@ -158,7 +160,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 - [ ] Lane replication (NUM_LANES > 1) for throughput scaling.
 - [ ] Multi-exercise-date expansion (full backward induction).
 
-> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See `IMPLEMENTATION_STATUS.md` for what is built; `ROADMAP.md` for next priorities.
+> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See `.user/IMPLEMENTATION_STATUS.md` for what is built; `.user/ROADMAP.md` for next priorities.
 
 ---
 
