@@ -3,24 +3,21 @@
 > **What's already built:** see [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)
 > **How to verify:** see [`VALIDATION.md`](VALIDATION.md)
 
-Last updated: 2026-04-13
+Last updated: 2026-04-15
 
 ---
 
-## Priority 1: Higher lane counts + throughput scaling
+## Completed: Priority 1 — Higher lane counts (simulation)
 
-**Goal:** Confirm `NUM_LANES=4` and `NUM_LANES=8` produce bit-identical prices, then measure actual throughput improvement on the target FPGA.
+**Done:** `NUM_LANES=4` and `NUM_LANES=8` produce the same Q16.16 price as `NUM_LANES=1` (`0x000b93cd` with default TB params). Wrappers: `tb_top_option_pricer_uart_compute_lanes4` / `_lanes8`; run `./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 4|8`.
 
-**Where to look:**
-- `src/top/top_option_pricer.sv` - `NUM_LANES` parameter, `gen_lane` generate block
-- `tb/tb_top_option_pricer_uart.sv` - add `lanes4` and `lanes8` wrapper modules
-- `scripts/run_tb_top_uart_safe.ps1` - `-NumLanes` dispatch
+**Deferred to silicon:** Actual throughput / fMAX vs lane count — measure on-board under **Priority 1** (FPGA hardware test).
 
-**Constraint:** `lat_N` must be divisible by `NUM_LANES`. Testbench params already satisfy this for powers of 2.
+**Constraint:** `lat_N` must be divisible by `NUM_LANES`.
 
 ---
 
-## Priority 2: FPGA hardware test
+## Priority 1: FPGA hardware test
 
 **Goal:** First on-board run. Validates that RTL synthesizes without timing violations and produces correct prices via real UART.
 
@@ -34,7 +31,7 @@ Last updated: 2026-04-13
 
 ---
 
-## Priority 3: Multi-exercise-date (full backward induction)
+## Priority 2: Multi-exercise-date (full backward induction)
 
 **Goal:** American option with M-1 exercise opportunities, not just step M-1.
 

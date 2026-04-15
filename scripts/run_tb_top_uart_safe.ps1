@@ -11,7 +11,7 @@ param(
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
     [switch]$DebugReg,   # -d REG_DEBUG for regression pipeline tracing
-    [int]$NumLanes = 1   # 1 = default; 2 selects tb_top_option_pricer_uart_compute_lanes2 (see .user/VALIDATION.md)
+    [int]$NumLanes = 1   # 1 = default; 2/3/4/8 select lane wrappers (see .user/VALIDATION.md)
 )
 
 $ErrorActionPreference = "Stop"
@@ -100,6 +100,9 @@ if ($Multibatch) {
     } elseif ($NumLanes -eq 4) {
         $top = "work.tb_top_option_pricer_uart_compute_lanes4"
         $snap = "tb_top_option_pricer_uart_compute_lanes4_sim"
+    } elseif ($NumLanes -eq 8) {
+        $top = "work.tb_top_option_pricer_uart_compute_lanes8"
+        $snap = "tb_top_option_pricer_uart_compute_lanes8_sim"
     } else {
         $top = "work.tb_top_option_pricer_uart_compute"
         $snap = "tb_top_option_pricer_uart_compute_sim"

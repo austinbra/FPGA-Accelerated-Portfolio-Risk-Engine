@@ -40,6 +40,7 @@ Optional cleanup:
 # Higher-lane spot checks
 ./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 3
 ./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 4
+./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 8
 ```
 
 **Constraint:** `lat_N` must be divisible by `NUM_LANES`.
@@ -54,7 +55,8 @@ Optional cleanup:
 | Elaboration | 0 errors from `xelab` | Passing |
 | Numerical | FPGA price within 1% of C++ baseline | Passing |
 | Multi-lane parity | `NUM_LANES=2` bit-identical to `NUM_LANES=1` | Passing |
-| Multi-lane parity | `NUM_LANES=4` bit-identical to `NUM_LANES=1` | Not yet run |
+| Multi-lane parity | `NUM_LANES=4` bit-identical to `NUM_LANES=1` | Passing |
+| Multi-lane parity | `NUM_LANES=8` bit-identical to `NUM_LANES=1` | Passing |
 | FPGA hardware | On-board price matches simulation | Not yet run |
 
 ---

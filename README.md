@@ -17,7 +17,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 - Cursor / AI rules index: `.cursor/README.md`
 - Validation log: `.user/VALIDATION.md` (commands run, results, known gaps).
 - Implementation snapshot: `.user/IMPLEMENTATION_STATUS.md`. Planned work: `.user/ROADMAP.md`.
-- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete.
+- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity verified bit-identical price.
 
 ---
 
@@ -124,7 +124,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 - **D3 complete**: Antithetic variates (paired z/−z paths) double effective path count.
 - **D4 complete**: Convergence sweep mode for empirical QMC convergence analysis.
 - **Precision centralization**: All FP constants from `fpga_cfg_pkg.sv`; elaboration assertions verify precomputed values.
-- Next: lane replication (D5), multi-exercise-date expansion, FPGA hardware testing.
+- Next: FPGA hardware testing (throughput vs `NUM_LANES` on silicon), multi-exercise-date expansion.
 
 ---
 
@@ -157,7 +157,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 - [x] Precision centralization: all FP constants from `fpga_cfg_pkg.sv` with elaboration assertions.
 - [x] Antithetic variates (D3): paired z/−z paths double effective N for variance reduction.
 - [x] Convergence sweep mode (D4): `--mode sweep` for empirical QMC convergence analysis.
-- [ ] Lane replication (NUM_LANES > 1) for throughput scaling.
+- [x] Lane replication (NUM_LANES 2/4/8): bit-identical price vs single lane in sim; on-board throughput TBD.
 - [ ] Multi-exercise-date expansion (full backward induction).
 
 > :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See `.user/IMPLEMENTATION_STATUS.md` for what is built; `.user/ROADMAP.md` for next priorities.

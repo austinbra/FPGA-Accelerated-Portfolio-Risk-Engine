@@ -352,6 +352,14 @@ module tb_top_option_pricer_uart_compute_lanes4;
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 
+// Same as compute mode but NUM_LANES=8 (wrapper avoids generic override parsing issues).
+module tb_top_option_pricer_uart_compute_lanes8;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0),
+        .NUM_LANES  (8)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
 // Back-to-back compute-mode requests (multi-batch regression).
 module tb_top_option_pricer_uart_multibatch;
     tb_top_option_pricer_uart_core #(

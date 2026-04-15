@@ -1,8 +1,8 @@
 # QMC-LSM-to-FPGA — Implementation Status
 
-> **Where we are:** All pipeline modules complete and fully synthesizable. Two-lane parallelism verified bit-identical. Ready for higher lane counts and FPGA hardware test.
+> **Where we are:** All pipeline modules complete and fully synthesizable. Multi-lane (`NUM_LANES` 1/2/4/8) verified bit-identical in simulation. Next: FPGA hardware test and throughput measurement on silicon.
 
-Last updated: 2026-04-13
+Last updated: 2026-04-15
 
 ---
 
@@ -37,6 +37,8 @@ Last updated: 2026-04-13
 |--------|-----------|--------------|----------------|
 | `NUM_LANES=1` | `0x000b93cd` | approx 11.58 | within QMC variance |
 | `NUM_LANES=2` | `0x000b93cd` | approx 11.58 | bit-identical |
+| `NUM_LANES=4` | `0x000b93cd` | approx 11.58 | bit-identical |
+| `NUM_LANES=8` | `0x000b93cd` | approx 11.58 | bit-identical |
 
 Parameters used: N=64 paths, M=12 steps, S0=K=100, r=0.05, sigma=0.2, T=1.0, CALL
 
@@ -46,8 +48,7 @@ Parameters used: N=64 paths, M=12 steps, S0=K=100, r=0.05, sigma=0.2, T=1.0, CAL
 
 | Priority | Work | Effort |
 |----------|------|--------|
-| High | Higher lane counts (`NUM_LANES=4`, `8`) - measure throughput scaling | Medium |
-| High | FPGA hardware test - bitstream, on-board UART, fMAX measurement | Medium |
+| High | FPGA hardware test - bitstream, on-board UART, fMAX + throughput vs `NUM_LANES` | Medium |
 | Medium | Multi-exercise-date expansion (full backward induction, multiple regression passes) | High |
 | Low | Multi-batch UART regression (`-Multibatch`) stability | Low |
 
@@ -70,8 +71,10 @@ Full details and rationale: [`ROADMAP.md`](ROADMAP.md)
 # 4. Simulate - full pricing run (NUM_LANES=1)
 ./scripts/run_tb_top_uart_safe.ps1 -ComputeMode
 
-# 5. Simulate - two-lane parity check
+# 5. Simulate - multi-lane parity (2 / 4 / 8 lanes)
 ./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 2
+./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 4
+./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 8
 
 # 6. Numerical validation (FPGA sim vs C++ baseline)
 python scripts/validate_numerical.py
