@@ -71,8 +71,8 @@ Full implementation **does not fit**: DRC **`UTLZ-1`** before place — **LUT as
 
 | Priority | Work | Effort |
 |----------|------|--------|
-| High | **Wall-time benchmark (no board required):** multiply reported cycle count from sim or DUT counter by **12 ns** (or exact STA period) vs C++ baseline. | Low |
-| High | **Optional silicon:** program A7-100T, `python src/uart_host.py --mode benchmark --target fpga --port COMx`; confirm price `0x000b93cd` and real throughput. | Low |
+| High | **Priority 1a (done):** STA + bitstream at **83.333 MHz**; virtual throughput: `run_virtual_a7_benchmark.ps1` / `uart_host.py --target virtual`. | — |
+| High | **Priority 1b (pending, needs board):** program A7-100T, `uart_host.py --target fpga --port COMx`; confirm price `0x000b93cd` and real UART timing. | Low |
 | Medium | **If 35T is a hard target:** Plan B shared dividers for beta/mean path, or shrink design. | Medium |
 | Medium | **If 100 MHz STA is required** without relaxing XDC: re-implement `fxMul` pipelining with a **proven** sim/UART handshake (avoid the deadlocked variant). | Medium |
 | Medium | Multi-exercise-date expansion (full backward induction, multiple regression passes). | High |

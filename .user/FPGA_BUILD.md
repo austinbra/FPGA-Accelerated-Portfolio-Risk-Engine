@@ -13,6 +13,22 @@
 
 **Experiment (does not fit):** Arty A7-35T — `.\scripts\run_vivado_build_arty_a7_35.ps1` — expect **LUT DRC** until Plan B or smaller config.
 
+### Virtual A7-100T (no board — cycles × STA clock)
+
+Use the same UART compute testbench as silicon, read the DUT `core_cycles` counter from the log, and scale wall time by the **post-route STA** frequency (default **83.333 MHz** from `arty_a7_100.xdc`). Optionally prints snippets from `timing_post_route.rpt` / `utilization.rpt` if you have already run implementation.
+
+```powershell
+# Same key=value format as uart_host.py --param-file (paths must divide NUM_LANES)
+.\scripts\run_virtual_a7_benchmark.ps1 -ParamFile baseline\cpp_fixed\params_example.txt -NumLanes 1
+
+# Output shaped like uart_host.py --target both, plus a mandatory Provenance line (slides / reports)
+.\scripts\run_virtual_a7_benchmark.ps1 -ParamFile baseline\cpp_fixed\params_example.txt -ReportFormat UartShaped
+```
+
+**Semantics:** RTL simulation still clocks the DUT at **100 MHz** (TB); only the **reported FPGA compute seconds** use `core_cycles / fclk` with `fclk` set to the A7-100T timing target (override with `-FclkHz`). This matches how you would interpret a board run if you programmed a bitstream and ran the same UART job at that frequency.
+
+**Integrity:** Present virtual numbers as **RTL + STA–scaled** when publishing; the `UartShaped` report always prints **Provenance** so readers are not misled. The repo also supports a real Arty A7-100T run (`run_fpga_benchmark.ps1` / `uart_host.py --target fpga`) for anyone with hardware.
+
 ---
 
 ## Arty S7-50 (XC7S50)
@@ -80,4 +96,4 @@ $env:VIVADO_SYNTH_ONLY = "1"
 - Open `vivado_build/arty_s7_50/vivado.log` and `arty_s7_qmc.runs/synth_1/runme.log`.
 - Common issues: missing mem file path (run from repo via script), part typo, IP version mismatch (`div_gen` 5.1).
 
-See also: [`.user/ROADMAP.md`](ROADMAP.md) (Priority 1 hardware test), [`.cursor/rules/rules.md`](../.cursor/rules/rules.md) (Arty pin table).
+See also: [`.user/ROADMAP.md`](ROADMAP.md) (Priority **1a** STA/bitstream, **1b** silicon smoke), [`.cursor/rules/rules.md`](../.cursor/rules/rules.md) (Arty pin table).

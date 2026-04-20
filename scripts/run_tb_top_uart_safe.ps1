@@ -11,25 +11,39 @@ param(
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
     [switch]$DebugReg,   # -d REG_DEBUG for regression pipeline tracing
-    [int]$NumLanes = 1   # 1 = default; 2/3/4/8 select lane wrappers (see .user/VALIDATION.md)
+    [int]$NumLanes = 1,  # 1 = default; 2/3/4/8 select lane wrappers (see .user/VALIDATION.md)
+    [string[]]$TestPlusarg = @()  # e.g. paths=64 steps=12 S0=6553600 ... passed to xsim -testplusarg
 )
 
 $ErrorActionPreference = "Stop"
 
+function Format-ExeArgument([string]$s) {
+    # CreateProcess command line: quote args that contain spaces, quotes, or '=' (xsim splits bare KEY=value).
+    if ($s -match '[\s="]') {
+        '"' + (($s -replace '\\', '\\\\') -replace '"', '\"') + '"'
+    } elseif ($s -match '=') {
+        '"' + $s + '"'
+    } else {
+        $s
+    }
+}
+
 function Invoke-ToolWithTimeout {
     param(
         [Parameter(Mandatory = $true)][string]$Exe,
-        [Parameter(Mandatory = $true)][string[]]$Args,
+        [Parameter(Mandatory = $true)][string[]]$CmdArgs,
         [Parameter(Mandatory = $true)][int]$TimeoutSec
     )
 
-    $argString = ($Args | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
+    $argString = ($CmdArgs | ForEach-Object { Format-ExeArgument $_ }) -join ' '
     Write-Host "Running: $Exe $argString"
 
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
     try {
-        $proc = Start-Process -FilePath $Exe -ArgumentList $Args -PassThru -NoNewWindow `
+        # Single Arguments string so KEY=value plusargs are not split at '=' by the shell/loader.
+        $argLine = ($CmdArgs | ForEach-Object { Format-ExeArgument $_ }) -join ' '
+        $proc = Start-Process -FilePath $Exe -ArgumentList $argLine -PassThru -NoNewWindow `
             -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile `
             -WorkingDirectory (Split-Path $PSScriptRoot -Parent)
         if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
@@ -86,7 +100,7 @@ if ($DebugReg) { $baseArgs += "-d"; $baseArgs += "REG_DEBUG" }
 
 # Single xvlog invocation (batched mode caused timeouts on heavy LUT modules)
 Write-Host "xvlog ($($sources.Count) files)"
-Invoke-ToolWithTimeout -Exe $XvlogExe -Args ($baseArgs + $sources) -TimeoutSec $XvlogTimeoutSeconds
+Invoke-ToolWithTimeout -Exe $XvlogExe -CmdArgs ($baseArgs + $sources) -TimeoutSec $XvlogTimeoutSeconds
 
 if ($Multibatch) {
     $top = "work.tb_top_option_pricer_uart_multibatch"
@@ -113,8 +127,16 @@ if ($Multibatch) {
     $snap = "tb_top_option_pricer_uart_sim"
 }
 
-Invoke-ToolWithTimeout -Exe $XelabExe -Args @("-nolog", $top, "-debug", "typical", "-s", $snap, "--mt", "off") -TimeoutSec $XelabTimeoutSeconds
-Invoke-ToolWithTimeout -Exe $XsimExe -Args @("-nolog", $snap, "-runall", "-onfinish", "quit") -TimeoutSec $XsimTimeoutSeconds
+Invoke-ToolWithTimeout -Exe $XelabExe -CmdArgs @("-nolog", $top, "-debug", "typical", "-s", $snap, "--mt", "off") -TimeoutSec $XelabTimeoutSeconds
+
+$xsimArgs = @("-nolog", $snap, "-runall", "-onfinish", "quit")
+# One -testplusarg per KEY=value (no spaces inside values). Joining into one string breaks
+# Start-Process argv quoting on Windows for long plusarg lines.
+foreach ($tp in @($TestPlusarg | Where-Object { $_ })) {
+    $xsimArgs += "-testplusarg"
+    $xsimArgs += [string]$tp
+}
+Invoke-ToolWithTimeout -Exe $XsimExe -CmdArgs $xsimArgs -TimeoutSec $XsimTimeoutSeconds
 
 Write-Host "Safe UART TB run completed."
 

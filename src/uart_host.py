@@ -162,7 +162,12 @@ def print_params(params):
 def main():
     parser = argparse.ArgumentParser(description="CPU/FPGA benchmark, live runner, and convergence sweep")
     parser.add_argument("--mode", choices=["benchmark", "live", "sweep"], required=True)
-    parser.add_argument("--target", choices=["cpu", "fpga", "both"], required=True)
+    parser.add_argument(
+        "--target",
+        choices=["cpu", "fpga", "both", "virtual"],
+        required=True,
+        help="virtual = no UART; run scripts/run_virtual_a7_benchmark.ps1 (xsim cycles × STA fclk)",
+    )
     parser.add_argument("--param-file", default="", help="Benchmark mode input file (key=value)")
     parser.add_argument("--symbol", default="SPY", help="Live mode symbol for Yahoo Finance")
     parser.add_argument("--strike", type=float, default=None, help="Live mode strike; default is ATM")
@@ -173,6 +178,18 @@ def main():
     parser.add_argument("--baud", type=int, default=115200, help="UART baud rate")
     parser.add_argument("--timeout", type=float, default=2.0, help="UART read timeout seconds")
     parser.add_argument("--fpga-fclk-hz", type=float, default=0.0, help="FPGA core clock for cycle->time conversion")
+    parser.add_argument(
+        "--num-lanes",
+        type=int,
+        default=1,
+        help="For --target virtual: NUM_LANES passed to the UART compute TB (paths must divide this).",
+    )
+    parser.add_argument(
+        "--virtual-report-format",
+        choices=("verbose", "uart_shaped"),
+        default="verbose",
+        help="For --target virtual only: PowerShell -ReportFormat (uart_shaped = uart_host-like block + provenance).",
+    )
     parser.add_argument("--build-cpu", action="store_true", help="Build C++ baseline before run")
     parser.add_argument("--use-boost", action="store_true", help="Build C++ baseline with Boost Sobol")
     parser.add_argument("--boost-include", default="", help="Boost include path if needed")
@@ -185,8 +202,38 @@ def main():
         if not args.param_file:
             raise ValueError("--param-file is required for benchmark/sweep mode.")
         params = load_params_file(args.param_file)
-    else:
+    elif args.mode == "live":
         params = fetch_live_params(args.symbol, args.strike, args.r, args.maturity)
+    else:
+        raise ValueError(f"Unsupported mode: {args.mode}")
+
+    if args.target == "virtual":
+        if args.mode != "benchmark":
+            raise ValueError("--target virtual requires --mode benchmark")
+        ps1 = repo_root / "scripts" / "run_virtual_a7_benchmark.ps1"
+        if not ps1.is_file():
+            raise FileNotFoundError(str(ps1))
+        lanes = max(1, int(args.num_lanes))
+        rf = "UartShaped" if args.virtual_report_format == "uart_shaped" else "Verbose"
+        cmd = [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(ps1),
+            "-ParamFile",
+            str(Path(args.param_file).resolve()),
+            "-NumLanes",
+            str(lanes),
+            "-FclkHz",
+            str(args.fpga_fclk_hz if args.fpga_fclk_hz > 0 else 83333333.333333333),
+            "-ReportFormat",
+            rf,
+        ]
+        print("[VIRTUAL] " + " ".join(cmd))
+        subprocess.run(cmd, cwd=str(repo_root), check=True)
+        return
 
     print_params(params)
 

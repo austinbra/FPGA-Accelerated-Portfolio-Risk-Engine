@@ -3,7 +3,8 @@
 module tb_top_option_pricer_uart_core #(
     parameter bit EXPECT_TIMEOUT = 1'b1,
     parameter int NUM_BATCHES = 1,
-    parameter int NUM_LANES = 1
+    parameter int NUM_LANES = 1,
+    parameter int TB_GLOBAL_MAX_CYCLES = 12_000_000
 );
     parameter int CLK_FREQ_HZ = 100_000_000;
     parameter int BAUD_RATE   = 115200;
@@ -164,17 +165,44 @@ module tb_top_option_pricer_uart_core #(
     endtask
 
     task automatic run_one_batch(input int batch_idx);
+        int unsigned v_paths;
+        int unsigned v_steps;
+        logic [31:0] v_s0, v_k, v_r, v_sig, v_t;
+        int unsigned v_opt;
+        logic [63:0] cyc64;
+        int _pu;
         begin
-            // Q16.16 payload per batch:
+            // Q16.16 payload per batch (defaults match legacy smoke / validation):
             // paths, steps, S0, K, r, sigma, T, option_type (0=CALL, 1=PUT)
-            params[0] = 32'd64;
-            params[1] = 32'd12;
-            params[2] = 32'h0064_0000; // 100.0
-            params[3] = 32'h0064_0000; // 100.0
-            params[4] = 32'h0000_0CCD; // ~0.05
-            params[5] = 32'h0000_3333; // ~0.2
-            params[6] = 32'h0001_0000; // 1.0
-            params[7] = 32'd0;         // 0=CALL
+            // Override from xsim: -testplusarg paths=64 -testplusarg steps=12 ...
+            // (decimal Q16.16 words for S0,K,r,sigma,T — same encoding as UART host)
+            v_paths = 32'd64;
+            v_steps = 32'd12;
+            v_s0    = 32'h0064_0000; // 100.0
+            v_k     = 32'h0064_0000; // 100.0
+            v_r     = 32'h0000_0CCD; // ~0.05
+            v_sig   = 32'h0000_3333; // ~0.2
+            v_t     = 32'h0001_0000; // 1.0
+            v_opt   = 32'd0;         // 0=CALL
+
+            // xsim warns if $value$plusargs is used as a task; assign to an int sink.
+            _pu = $value$plusargs("paths=%d", v_paths);
+            _pu = $value$plusargs("steps=%d", v_steps);
+            _pu = $value$plusargs("S0=%d", v_s0);
+            _pu = $value$plusargs("K=%d", v_k);
+            _pu = $value$plusargs("r=%d", v_r);
+            _pu = $value$plusargs("sigma=%d", v_sig);
+            _pu = $value$plusargs("T=%d", v_t);
+            _pu = $value$plusargs("opt=%d", v_opt);
+
+            params[0] = v_paths;
+            params[1] = v_steps;
+            params[2] = v_s0;
+            params[3] = v_k;
+            params[4] = v_r;
+            params[5] = v_sig;
+            params[6] = v_t;
+            params[7] = v_opt[0] ? 32'd1 : 32'd0;
 
             for (i = 0; i < NUM_PARAMS; i++) begin
                 send_word(params[i]);
@@ -231,6 +259,12 @@ module tb_top_option_pricer_uart_core #(
                 end
             end
 
+            if (!EXPECT_TIMEOUT) begin
+                cyc64 = {result_words[3], result_words[2]};
+                $display("[VIRTUAL_A7] paths=%0d steps=%0d core_cycles=%0d price_raw=0x%08h marker=0x%08h",
+                         v_paths, v_steps, cyc64, result_words[1], result_words[0]);
+            end
+
             if (EXPECT_TIMEOUT && result_words[2] === 32'd0 && result_words[3] === 32'd0) begin
                 $display("Batch %0d cycle count unexpectedly zero in timeout mode", batch_idx);
                 errors++;
@@ -268,7 +302,7 @@ module tb_top_option_pricer_uart_core #(
     end
 
     initial begin
-        repeat (12_000_000 * NUM_BATCHES) @(posedge clk);
+        repeat (TB_GLOBAL_MAX_CYCLES * NUM_BATCHES) @(posedge clk);
         $fatal(1, "Global TB timeout");
     end
 
@@ -324,7 +358,8 @@ endmodule
 // Explicit mode: real compute-complete path should not timeout.
 module tb_top_option_pricer_uart_compute;
     tb_top_option_pricer_uart_core #(
-        .EXPECT_TIMEOUT(1'b0)
+        .EXPECT_TIMEOUT(1'b0),
+        .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 
@@ -332,7 +367,8 @@ endmodule
 module tb_top_option_pricer_uart_compute_lanes2;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0),
-        .NUM_LANES  (2)
+        .NUM_LANES  (2),
+        .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 
@@ -340,7 +376,8 @@ endmodule
 module tb_top_option_pricer_uart_compute_lanes3;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0),
-        .NUM_LANES  (3)
+        .NUM_LANES  (3),
+        .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 
@@ -348,7 +385,8 @@ endmodule
 module tb_top_option_pricer_uart_compute_lanes4;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0),
-        .NUM_LANES  (4)
+        .NUM_LANES  (4),
+        .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 
@@ -356,7 +394,8 @@ endmodule
 module tb_top_option_pricer_uart_compute_lanes8;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0),
-        .NUM_LANES  (8)
+        .NUM_LANES  (8),
+        .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 
@@ -364,6 +403,7 @@ endmodule
 module tb_top_option_pricer_uart_multibatch;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0),
-        .NUM_BATCHES(2)
+        .NUM_BATCHES(2),
+        .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
