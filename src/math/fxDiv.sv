@@ -41,7 +41,7 @@ module fxDiv #(
         // generics do not match what the core was generated for.
         if (WIDTH   != 32)  $warning("fxDiv: WIDTH != 32 - 'fxDiv_core' IP must be regenerated.");
         if (QFRAC   != 16)  $warning("fxDiv: QFRAC != 16 - 'fxDiv_core' IP must be regenerated.");
-        if (LATENCY != 16)  $warning("fxDiv: LATENCY != 16 - 'fxDiv_core' IP was built for 16 cycles.");
+        if (LATENCY != 32)  $warning("fxDiv: LATENCY != 32 - 'fxDiv_core' IP was built for 32 cycles.");
     end
 
 
@@ -63,7 +63,9 @@ module fxDiv #(
     // 3.  div_gen instance (fixed topology - see note above)
     //-------------------------------------------------------------------------
     logic core_div_rdy, core_dvd_rdy, core_tvalid;
-    logic [63:0] core_dout;                     // 48-bit quot  + 16-bit rem
+    // div_gen v5.1 (48/32 signed, remainder) exposes 80-bit m_axis_dout_tdata; lower 64 bits
+    // match the behavioral stub packing {16'b0, quotient[47:0], remainder[15:0]}.
+    logic [79:0] core_dout;
 
     fxDiv_core div_u (
         .aclk                   (clk),

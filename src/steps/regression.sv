@@ -45,6 +45,7 @@ module regression #(
 
     // Stage regs
     logic v0;
+    logic v0a;   // Stage-1a valid: abs_val latched, mat0_d latched
     logic v1;
     logic v2;
     logic v3;
@@ -128,60 +129,206 @@ module regression #(
         end
     end
 
-    // Stage‑1 : pivot row 0
+    // Stage-1a : latch abs_val(mat0[i][0]) and a delayed mat0_d copy.
+    //   Breaks the previous 12-CARRY4 / 20-logic-level critical path (mat0 ->
+    //   abs+compare cascade -> pivot0_row -> row mux -> mat1) into two shorter
+    //   stages. +1 pipeline cycle per solve, ~negligible vs solve latency.
+    logic signed [WIDTH-1:0] a0_col0 [0:2];
+    logic signed [WIDTH-1:0] mat0_d  [0:2][0:3];
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            v0a <= 1'b0;
+        end else begin
+            v0a        <= v0;
+            a0_col0[0] <= abs_val(mat0[0][0]);
+            a0_col0[1] <= abs_val(mat0[1][0]);
+            a0_col0[2] <= abs_val(mat0[2][0]);
+            for (int r = 0; r < 3; r++) begin
+                for (int c = 0; c < 4; c++) begin
+                    mat0_d[r][c] <= mat0[r][c];
+                end
+            end
+        end
+    end
+
+    // Stage-1b : pivot row 0 from registered absolutes + row mux into mat1.
     always_comb begin
         pivot0_row = 2'd0;
-        if (abs_val(mat0[1][0]) > abs_val(mat0[0][0])) pivot0_row = 2'd1;
-        if (abs_val(mat0[2][0]) > abs_val(mat0[pivot0_row][0])) pivot0_row = 2'd2;
+        if (a0_col0[1] > a0_col0[0])          pivot0_row = 2'd1;
+        if (a0_col0[2] > a0_col0[pivot0_row]) pivot0_row = 2'd2;
     end
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) v1 <= 1'b0;
         else begin
-            v1          <= v0;
-            mat1[0][0]  <= mat0[pivot0_row][0];
-            mat1[0][1]  <= mat0[pivot0_row][1];
-            mat1[0][2]  <= mat0[pivot0_row][2];
-            mat1[0][3]  <= mat0[pivot0_row][3];
-            mat1[1][0]  <= (2'd1 == pivot0_row) ? mat0[0][0] : mat0[1][0];
-            mat1[1][1]  <= (2'd1 == pivot0_row) ? mat0[0][1] : mat0[1][1];
-            mat1[1][2]  <= (2'd1 == pivot0_row) ? mat0[0][2] : mat0[1][2];
-            mat1[1][3]  <= (2'd1 == pivot0_row) ? mat0[0][3] : mat0[1][3];
-            mat1[2][0]  <= (2'd2 == pivot0_row) ? mat0[0][0] : mat0[2][0];
-            mat1[2][1]  <= (2'd2 == pivot0_row) ? mat0[0][1] : mat0[2][1];
-            mat1[2][2]  <= (2'd2 == pivot0_row) ? mat0[0][2] : mat0[2][2];
-            mat1[2][3]  <= (2'd2 == pivot0_row) ? mat0[0][3] : mat0[2][3];
+            v1          <= v0a;
+            mat1[0][0]  <= mat0_d[pivot0_row][0];
+            mat1[0][1]  <= mat0_d[pivot0_row][1];
+            mat1[0][2]  <= mat0_d[pivot0_row][2];
+            mat1[0][3]  <= mat0_d[pivot0_row][3];
+            mat1[1][0]  <= (2'd1 == pivot0_row) ? mat0_d[0][0] : mat0_d[1][0];
+            mat1[1][1]  <= (2'd1 == pivot0_row) ? mat0_d[0][1] : mat0_d[1][1];
+            mat1[1][2]  <= (2'd1 == pivot0_row) ? mat0_d[0][2] : mat0_d[1][2];
+            mat1[1][3]  <= (2'd1 == pivot0_row) ? mat0_d[0][3] : mat0_d[1][3];
+            mat1[2][0]  <= (2'd2 == pivot0_row) ? mat0_d[0][0] : mat0_d[2][0];
+            mat1[2][1]  <= (2'd2 == pivot0_row) ? mat0_d[0][1] : mat0_d[2][1];
+            mat1[2][2]  <= (2'd2 == pivot0_row) ? mat0_d[0][2] : mat0_d[2][2];
+            mat1[2][3]  <= (2'd2 == pivot0_row) ? mat0_d[0][3] : mat0_d[2][3];
         end
     end
 
-    // Stage 2 : normalize row‑0 (4 div)
-    logic signed [WIDTH-1:0] div0_num[0:3];
-    logic signed [WIDTH-1:0] div0_den[0:3];
-    logic signed [WIDTH-1:0] div0_res[0:3];
-    logic [3:0]              div0_done;
-    logic [0:3]              div0_ready;
+    // ============================================================================
+    // Stage 2 / 5 / 6B : SHARED solver divider (Plan A)
+    //   Replaces 10 parallel fxDiv (DIV0 x4, DIV1 x3, DIV2 x3) with 1 shared
+    //   fxDiv + a scheduler. Groups are time-separated by the main pipeline (v1,
+    //   v4, v6 pulses) and in_flight blocks solve-overlap, so only one group is
+    //   ever active. Numerators are fed one per cycle; results collected into
+    //   div{0,1,2}_res[] arrays; g{0,1,2}_all_done pulses mirror the old
+    //   &div{0,1,2}_done semantics for the downstream latch code.
+    // ============================================================================
+    logic signed [WIDTH-1:0] div0_res [0:3];
+    logic signed [WIDTH-1:0] div1_res [0:2];
+    logic signed [WIDTH-1:0] div2_res [0:2];
+
+    logic g0_all_done;
+    logic g1_all_done;
+    logic g2_all_done;
 
     assign pivot0_is_zero = v1 && (mat1[0][0] == '0);
+    assign pivot1_is_zero = v4 && (mat4[1][1] == '0);
+    assign pivot2_is_zero = (mat6[2][2] == '0);
+
+    // Shared divider handshake
+    logic                     sh_valid_in;
+    logic                     sh_ready_out;
+    logic                     sh_valid_out;
+    logic signed [WIDTH-1:0]  sh_num;
+    logic signed [WIDTH-1:0]  sh_den;
+    logic signed [WIDTH-1:0]  sh_res;
+
+    fxDiv #() u_solver_div (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .valid_in    (sh_valid_in),
+        .ready_out   (sh_ready_out),
+        .ready_in    (1'b1),
+        .valid_out   (sh_valid_out),
+        .numerator   (sh_num),
+        .denominator (sh_den),
+        .result      (sh_res)
+    );
+
+    // Per-group numerators (combinational; sources remain stable during a group)
+    logic signed [WIDTH-1:0] g0_num [0:3];
+    logic signed [WIDTH-1:0] g1_num [0:2];
+    logic signed [WIDTH-1:0] g2_num [0:2];
 
     generate
-        for (genvar g = 0; g < 4; ++g) begin : DIV0
-            logic signed [2*WIDTH-1:0] num64_ext0;
-            assign num64_ext0 = $signed({{WIDTH{mat1[0][g][WIDTH-1]}}, mat1[0][g]}) <<< QFRAC;
-            assign div0_num[g] = num64_ext0[WIDTH+QFRAC-1 : QFRAC];
-            assign div0_den[g] = mat1[0][0];
-            fxDiv #() d0 (
-                .clk        (clk),
-                .rst_n      (rst_n),
-                .valid_in   (v1 && !pivot0_is_zero),
-                .ready_out  (div0_ready[g]),
-                .ready_in   (1'b1),
-                .valid_out  (div0_done[g]),
-                .numerator  (div0_num[g]),
-                .denominator(div0_den[g]),
-                .result     (div0_res[g])
-            );
+        for (genvar gN0 = 0; gN0 < 4; gN0++) begin : NUM0_COMB
+            logic signed [2*WIDTH-1:0] ext;
+            assign ext         = $signed({{WIDTH{mat1[0][gN0][WIDTH-1]}}, mat1[0][gN0]}) <<< QFRAC;
+            assign g0_num[gN0] = ext[WIDTH+QFRAC-1 : QFRAC];
+        end
+        for (genvar gN1 = 0; gN1 < 3; gN1++) begin : NUM1_COMB
+            logic signed [2*WIDTH-1:0] ext;
+            assign ext         = $signed({{WIDTH{mat4[1][gN1+1][WIDTH-1]}}, mat4[1][gN1+1]}) <<< QFRAC;
+            assign g1_num[gN1] = ext[WIDTH+QFRAC-1 : QFRAC];
+        end
+        for (genvar gN2 = 0; gN2 < 3; gN2++) begin : NUM2_COMB
+            logic signed [2*WIDTH-1:0] ext;
+            assign ext         = $signed({{WIDTH{mat6[2][gN2+1][WIDTH-1]}}, mat6[2][gN2+1]}) <<< QFRAC;
+            assign g2_num[gN2] = ext[WIDTH+QFRAC-1 : QFRAC];
         end
     endgenerate
 
+    // Scheduler FSM
+    typedef enum logic [1:0] { D_IDLE, D_G0, D_G1, D_G2 } d_state_e;
+    d_state_e ds;
+    logic [2:0] iss_cnt;
+    logic [2:0] rx_cnt;
+
+    wire [2:0] grp_n = (ds == D_G0) ? 3'd4 :
+                       (ds == D_G1) ? 3'd3 :
+                       (ds == D_G2) ? 3'd3 : 3'd0;
+
+    always_comb begin
+        sh_num      = '0;
+        sh_den      = '0;
+        sh_valid_in = 1'b0;
+        unique case (ds)
+            D_G0: begin
+                sh_num      = g0_num[iss_cnt[1:0]];
+                sh_den      = mat1[0][0];
+                sh_valid_in = (iss_cnt < 3'd4);
+            end
+            D_G1: begin
+                sh_num      = g1_num[iss_cnt[1:0]];
+                sh_den      = mat4[1][1];
+                sh_valid_in = (iss_cnt < 3'd3);
+            end
+            D_G2: begin
+                sh_num      = g2_num[iss_cnt[1:0]];
+                sh_den      = mat6[2][2];
+                sh_valid_in = (iss_cnt < 3'd3);
+            end
+            default: ;
+        endcase
+    end
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            ds          <= D_IDLE;
+            iss_cnt     <= '0;
+            rx_cnt      <= '0;
+            g0_all_done <= 1'b0;
+            g1_all_done <= 1'b0;
+            g2_all_done <= 1'b0;
+            for (int i = 0; i < 4; i++) div0_res[i] <= '0;
+            for (int i = 0; i < 3; i++) div1_res[i] <= '0;
+            for (int i = 0; i < 3; i++) div2_res[i] <= '0;
+        end else begin
+            g0_all_done <= 1'b0;
+            g1_all_done <= 1'b0;
+            g2_all_done <= 1'b0;
+
+            // issue one numerator per cycle when the core can accept it
+            if ((ds == D_G0 || ds == D_G1 || ds == D_G2) &&
+                sh_valid_in && sh_ready_out) begin
+                iss_cnt <= iss_cnt + 1'b1;
+            end
+
+            // collect one result per cycle as it arrives
+            if (sh_valid_out) begin
+                unique case (ds)
+                    D_G0:    div0_res[rx_cnt[1:0]] <= sh_res;
+                    D_G1:    div1_res[rx_cnt[1:0]] <= sh_res;
+                    D_G2:    div2_res[rx_cnt[1:0]] <= sh_res;
+                    default: ;
+                endcase
+                rx_cnt <= rx_cnt + 1'b1;
+
+                if (rx_cnt + 3'd1 == grp_n) begin
+                    unique case (ds)
+                        D_G0:    g0_all_done <= 1'b1;
+                        D_G1:    g1_all_done <= 1'b1;
+                        D_G2:    g2_all_done <= 1'b1;
+                        default: ;
+                    endcase
+                    ds      <= D_IDLE;
+                    iss_cnt <= '0;
+                    rx_cnt  <= '0;
+                end
+            end
+
+            // IDLE: pick up the next group trigger (mutually exclusive by pipeline order)
+            if (ds == D_IDLE) begin
+                if      (v1 && !pivot0_is_zero) ds <= D_G0;
+                else if (v4 && !pivot1_is_zero) ds <= D_G1;
+                else if (v6 && !pivot2_is_zero) ds <= D_G2;
+            end
+        end
+    end
+
+    // Stage 2 latch : mat1 row 0 normalized -> mat2
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             v2 <= 1'b0;
@@ -189,7 +336,7 @@ module regression #(
             for (int c=0; c<4; c++)
                 mat2[r][c] <= '0;
         end else begin
-            v2          <= (&div0_done) && !pivot0_is_zero;
+            v2          <= g0_all_done;
             mat2[0][0]  <= div0_res[0];
             mat2[0][1]  <= div0_res[1];
             mat2[0][2]  <= div0_res[2];
@@ -290,40 +437,13 @@ module regression #(
     end
 end
 
-    // Stage 5 : normalize row‑1 (3 div)
-    logic signed [WIDTH-1:0] div1_num[0:2];
-    logic signed [WIDTH-1:0] div1_den[0:2];
-    logic signed [WIDTH-1:0] div1_res[0:2];
-    logic [2:0]              div1_done;
-    logic [2:0]              div1_ready;
-
-    assign pivot1_is_zero = v4 && (mat4[1][1] == '0);
-
-    generate
-        for (genvar g1 = 0; g1 < 3; g1++) begin : DIV1
-            logic signed [2*WIDTH-1:0] num64_ext1;
-            assign num64_ext1   = $signed({{WIDTH{mat4[1][g1+1][WIDTH-1]}},
-                                            mat4[1][g1+1]}) <<< QFRAC;
-            assign div1_num[g1] = num64_ext1[WIDTH+QFRAC-1 : QFRAC];
-            assign div1_den[g1] = mat4[1][1];
-            fxDiv #() d1 (
-                .clk        (clk),
-                .rst_n      (rst_n),
-                .valid_in   (v4 && !pivot1_is_zero),
-                .ready_out  (div1_ready[g1]),
-                .ready_in   (1'b1),
-                .valid_out  (div1_done[g1]),
-                .numerator  (div1_num[g1]),
-                .denominator(div1_den[g1]),
-                .result     (div1_res[g1])
-            );
-        end
-    endgenerate
+    // Stage 5 : normalize row‑1 (3 div) — served by the shared solver divider
+    //          (div1_res / pivot1_is_zero / g1_all_done declared above).
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) v5 <= 1'b0;
         else begin
-            v5          <= (&div1_done) && !pivot1_is_zero;
+            v5          <= g1_all_done;
             mat5[0][0]  <= mat4[0][0];
             mat5[0][1]  <= mat4[0][1];
             mat5[0][2]  <= mat4[0][2];
@@ -392,37 +512,8 @@ end
         end
     end
 
-    // Stage-6B : normalize row‑2
-    logic signed [WIDTH-1:0] div2_num[0:2];
-    logic signed [WIDTH-1:0] div2_res[0:2];
-    logic signed [WIDTH-1:0] div2_den;
-    logic [2:0]              div2_done;
-    logic [2:0]              div2_ready;
-
-    assign div2_den = mat6[2][2];
-    assign pivot2_is_zero = (mat6[2][2] == '0);
-
-    generate
-        for (genvar g2 = 0; g2 < 3; ++g2) begin : DIV2
-            logic signed [2*WIDTH-1:0] num64_ext2;
-            assign num64_ext2 = $signed({{WIDTH{mat6[2][g2+1][WIDTH-1]}}, mat6[2][g2+1]}) <<< QFRAC;
-            assign div2_num[g2] = num64_ext2[WIDTH+QFRAC-1 : QFRAC];
-            
-
-            fxDiv #() d2 (// only start divides when we have a valid row-2 AND pivot non-zero
-                .clk        (clk),
-                .rst_n      (rst_n),
-                .valid_in   (v6 && !pivot2_is_zero),
-                .ready_out  (div2_ready[g2]),
-                .ready_in   (1'b1),
-                .valid_out  (div2_done[g2]),
-                .numerator  (div2_num[g2]),
-                .denominator(div2_den),
-                .result     (div2_res[g2])
-            );
-        end
-    endgenerate
-    
+    // Stage-6B : normalize row‑2 — served by the shared solver divider
+    //          (div2_res / pivot2_is_zero / g2_all_done declared above).
 
 
     // Stage‑7 : back‑substitution
@@ -468,10 +559,10 @@ end
             mat7[2][2] <= '0;
             mat7[2][3] <= '0;
         end else begin
-            // pulsed when all 3 dividers finished and pivot was non-zero
-            v6b <= (&div2_done) && !pivot2_is_zero;
+            // pulsed when all 3 divides for this group finished and pivot was non-zero
+            v6b <= g2_all_done;
 
-            if ((&div2_done) && !pivot2_is_zero) begin
+            if (g2_all_done) begin
                 // copy rows 0 and 1
                 for (int j4 = 0; j4 < 4; ++j4) begin
                     mat7[0][j4] <= mat6[0][j4];

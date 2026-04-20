@@ -78,6 +78,9 @@ data/*.csv
 data/*.json
 logging/
 
+# Vivado project outputs (non-project batch build under repo)
+vivado_build/
+
 # Vivado / XSIM generated artifacts
 .Xil/
 xsim.dir/

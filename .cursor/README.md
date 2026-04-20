@@ -16,7 +16,7 @@ Do not move rule files out of `rules/` unless you confirm Cursor still picks the
 | File | Role |
 |------|------|
 | `rules.md` | Permanent project identity, architecture, file map, design principles. |
-| `primer.md` | Short session handoff (what just finished, what’s next). |
+| `primer.md` | Short session handoff (what just finished, what’s next); rewrite after substantive milestones. |
 | `hindsight.md` | Behavioral lessons from past bugs (append-only). |
 | `log.md` | Long validation / incident history (append-only). |
 | `obsidian_sync.md` | When to mirror substantive work to your Obsidian vault. |

@@ -35,6 +35,7 @@ function Invoke-ToolWithTimeout {
 }
 
 $sources = @(
+    "fpga/mem_paths_pkg.sv",
     "src/fpga_cfg_pkg.sv",
     "src/helpers/rv_skid_arr_gate.sv",
     "src/helpers/event_align_fifo_arr.sv",

@@ -14,10 +14,10 @@ module fxDiv_core (
     input  logic [47:0] s_axis_dividend_tdata,
     output logic        m_axis_dout_tvalid,
     input  logic        m_axis_dout_tready,
-    output logic [63:0] m_axis_dout_tdata
+    output logic [79:0] m_axis_dout_tdata
 );
     logic        out_valid;
-    logic [63:0] out_data;
+    logic [79:0] out_data;
 
     logic signed [31:0] divisor_s;
     logic signed [47:0] dividend_s;
@@ -45,7 +45,8 @@ module fxDiv_core (
                     quotient_s  = dividend_s / divisor_s;
                     remainder_s = dividend_s % divisor_s;
                 end
-                out_data  <= {quotient_s, remainder_s};
+                // Pad to 80 bits like Xilinx div_gen v5.1 dout width for fxDiv.sv slice alignment.
+                out_data  <= {16'd0, quotient_s, remainder_s};
                 out_valid <= 1'b1;
             end else if (out_valid && m_axis_dout_tready) begin
                 out_valid <= 1'b0;

@@ -4,7 +4,7 @@ module fxExpLUT #(
     parameter int QINT        = fpga_cfg_pkg::FP_QINT,
     parameter int QFRAC       = fpga_cfg_pkg::FP_QFRAC,
     parameter int LUT_BITS    = 12,
-    parameter string LUT_FILE = "src/gen/exp_lut_4096.mem",
+    parameter string LUT_FILE = mem_paths_pkg::EXP_LUT,
     parameter bit SIGNED_RANGE = 0   // 1: 8192 LUT, handles signed a (exp(a) for a in [-1,1])
 )(
     input  logic                      clk,

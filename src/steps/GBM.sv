@@ -124,7 +124,7 @@ module GBM #(
 
     fxExpLUT #(
         .LUT_BITS(12),
-        .LUT_FILE("src/gen/exp_signed_lut_8192.mem"),
+        .LUT_FILE(mem_paths_pkg::EXP_SIGNED),
         .SIGNED_RANGE(1)
     ) u_exp (
         .clk(clk), .rst_n(rst_n),

@@ -2,7 +2,7 @@
 
 ## Overview
 This project implements a **production‑grade, fully handshaked FPGA pipeline** for **American option pricing** using the **Longstaff–Schwartz Monte Carlo (LSMC)** method with **Quasi‑Monte Carlo (Sobol) sequences**.  
-The design targets a **Xilinx Spartan‑7 FPGA** (Vivado flow) and is written in **SystemVerilog**.  
+The design is proven in **Vivado** on **Digilent Arty A7-100T** (primary STA/bitstream target) and was originally sized for **Spartan‑7**; see `.user/IMPLEMENTATION_STATUS.md` for utilization and clock targets.  
 
 In addition to the FPGA implementation, the repository includes a **fixed‑point C++ baseline**:
 - Located at `baseline/cpp_fixed/`.  
@@ -17,7 +17,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 - Cursor / AI rules index: `.cursor/README.md`
 - Validation log: `.user/VALIDATION.md` (commands run, results, known gaps).
 - Implementation snapshot: `.user/IMPLEMENTATION_STATUS.md`. Planned work: `.user/ROADMAP.md`.
-- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity verified bit-identical price.
+- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity verified bit-identical price. **Arty A7-100T** routed timing meets constraints at **83.333 MHz** (`sys_clk` 12 ns in XDC); **Arty A7-35T** does not fit LUT budget without further sharing.
 
 ---
 
@@ -25,7 +25,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 - **Fully pipelined streaming datapath** with skid buffers at every stage boundary:  
   Sobol → Inverse CDF (Zelen–Severo rational approx) → GBM path simulation → Accumulator → Regression (Gaussian elimination) → LSM decision → UART output.  
   Multiple samples in-flight simultaneously; backpressure propagates through ready/valid handshaking without data loss.
-- **Fixed‑point math** (default Q16.16) with LUT‑based exp, synthesizable ln (range decomposition + linear interpolation) and sqrt (non-restoring digit-by-digit), and moneyness normalization to prevent overflow. All modules fully synthesizable — no behavioral models.
+- **Fixed‑point math** (default Q16.16) with LUT‑based exp, synthesizable **ln** (2-stage BRAM + `ln_lut_4096.mem`; regenerate with `scripts/gen_ln_lut_4096.py`) and **sqrt** (digit-by-digit restoring, 24 iterations + FSM), and moneyness normalization to prevent overflow. All modules fully synthesizable — no behavioral models.
 - **Three running modes** (host-side via `src/uart_host.py`):
   - **Benchmark**: CPU vs FPGA side-by-side with identical parameters; reports price, cycles, wall time, speedup.
   - **Live**: Fetches real market data from Yahoo Finance, derives S0/sigma, runs pricing with live parameters.
@@ -45,7 +45,7 @@ The design is a **fully pipelined, streaming datapath** with ready/valid handsha
 - **Sobol generator**: Gray‑coded XOR tree with BRAM‑stored direction numbers. Skid-buffered output.
 - **Inverse CDF** (~15 cycles):  
   - Fold U(0,1) to (0,0.5] with negate flag (event-alignment FIFO for negate, combinational read).
-  - ln (synthesizable 3-stage pipeline) + multiply by −2 + sqrt (non-restoring digit-by-digit, 25 cycles) → t.
+  - ln (2-stage BRAM LUT) + multiply by −2 + sqrt (digit-by-digit restoring, 24 `COMP` cycles) → t.
   - Zelen–Severo rational polynomial (precomputed Q16.16 constants, elaboration-verified) → z‑score.  
 - **GBM step** (~5 cycles, streaming pipeline with input skid buffer):  
   MUL1(vol_sqrt_dt × z) → ADD + saturate → EXP(signed LUT) → MUL2(S × exp).  
@@ -91,11 +91,15 @@ cd baseline/cpp_fixed && g++ -std=c++17 main.cpp pricing.cpp linalg.cpp sobol_wr
 python scripts/validate_numerical.py
 ```
 
-1. Add all SystemVerilog sources and memory initialization files (`*.mem`) to a Vivado project.  
-2. Generate the `fxDiv_core` IP (Xilinx `div_gen`) with parameters matching `fxDiv.sv`.  
-3. Add a clock constraint (e.g., 100 MHz).  
-4. Run behavioral simulation with provided testbenches.  
-5. Synthesize and implement for Spartan‑7.  
+**Arty S7-50 bitstream (scripted):** full flow is documented in [`.user/FPGA_BUILD.md`](.user/FPGA_BUILD.md). Quick synthesis check:
+
+```powershell
+$env:VIVADO_SYNTH_ONLY = "1"
+.\scripts\run_vivado_build_arty_s7.ps1 -SynthOnly
+Remove-Item Env:VIVADO_SYNTH_ONLY -ErrorAction SilentlyContinue
+```
+
+Full implementation + `.bit` (long run): `.\scripts\run_vivado_build_arty_s7.ps1` (optional `-TimeoutSeconds`).
 
 ### C++ Baseline
 1. Build `baseline/cpp_fixed/` with a modern C++ compiler (C++17 or later).  
@@ -151,8 +155,8 @@ Three host-side modes are supported via `src/uart_host.py`:
 - [x] Two running modes: benchmark (CPU vs FPGA comparison) + live (Yahoo Finance data).
 - [x] PUT/CALL runtime flag (D1) — 1-bit option_type through UART, top-level, and lsm_decision.
 - [x] **Numerical validation**: FPGA 6.553 vs C++ 6.50 = 0.8% error (8 bugs fixed in Phase 7).
-- [x] Synthesizable fxSqrt rewrite (non-restoring digit-by-digit, 25 cycles, no DSP/LUT).
-- [x] Synthesizable fxLnLUT rewrite (3-stage pipeline, range decomposition + linear interpolation).
+- [x] Synthesizable fxSqrt (digit-by-digit restoring, 24 iterations; `FP_SQRT_LATENCY=24`; no DSP/BRAM).
+- [x] Synthesizable fxlnLUT (2-stage BRAM + `$readmemh`; `scripts/gen_ln_lut_4096.py` for ROM data).
 - [x] Richer error reporting (D2): 5-word result packet with timeout/singular status flags.
 - [x] Precision centralization: all FP constants from `fpga_cfg_pkg.sv` with elaboration assertions.
 - [x] Antithetic variates (D3): paired z/−z paths double effective N for variance reduction.

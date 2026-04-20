@@ -3,7 +3,7 @@ module sobol #(
     parameter int WIDTH     = fpga_cfg_pkg::FP_WIDTH,   // 16, 32, 64...
     parameter int M         = 50,                       // total time-steps "dimensions"
     parameter int LANE_ID   = 0,
-    parameter string DIRECTION_MEM_FILE = "src/gen/direction.mem"
+    parameter string DIRECTION_MEM_FILE = mem_paths_pkg::DIRECTION_MEM
 )(
     input  logic                         clk,
     input  logic                         rst_n,

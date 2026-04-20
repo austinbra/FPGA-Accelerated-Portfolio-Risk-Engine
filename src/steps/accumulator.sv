@@ -44,8 +44,8 @@ module accumulator #(
     logic                     skid_s_ready;
     logic                     skid_m_valid;
     logic                     skid_m_ready;
-    logic [WIDTH-1:0]         skid_s_data [0:1];
-    logic [WIDTH-1:0]         skid_m_data [0:1];
+    logic signed [WIDTH-1:0]  skid_s_data [0:1];
+    logic signed [WIDTH-1:0]  skid_m_data [0:1];
 
     // Head/tail mul barrier handshakes
     logic mul_x_x_ready;

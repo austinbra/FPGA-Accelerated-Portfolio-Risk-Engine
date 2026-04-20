@@ -4,15 +4,15 @@ module rv_skid_arr_gate #(parameter int N=1, DW=32) (
   input  logic              rst_n,
   input  logic              s_valid,
   output logic              s_ready,
-  input  logic [DW-1:0]     s_data [0:N-1],
+  input  logic signed [DW-1:0] s_data [0:N-1],
   input  logic              gate_accept,
   output logic              m_valid,
   input  logic              m_ready,
-  output logic [DW-1:0]     m_data [0:N-1]
+  output logic signed [DW-1:0] m_data [0:N-1]
 );
   // Declare before use
   logic                     buf_valid;
-  logic [DW-1:0]            buf_data [0:N-1];
+  logic signed [DW-1:0]     buf_data [0:N-1];
 
   // Ready
   logic base_ready;
