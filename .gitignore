@@ -106,8 +106,8 @@ dfx_runtime.txt
 # Obsidian vault (local knowledge base, not version-controlled)
 vault/
 
-# Private / resume-local notes (optional on-disk only; not published)
-.user/
+# Maintainer-only roadmap (never commit — local backlog / silicon checklist)
+.user/ROADMAP_PRIVATE.md
 
 # Optional scratch (never commit secrets or keys)
 local/
@@ -117,7 +117,9 @@ local/
 secrets/
 
 # -------------------------
-# 6) Cursor / local AI workspace — keep off public clone
+# 6) Cursor / local AI workspace ("memory layer")
 # -------------------------
-.cursor/
+# Rules stay local; only the human index is tracked.
+.cursor/*
+!.cursor/README.md
 .specstory/

@@ -2,7 +2,7 @@
 
 ## Overview
 This project implements a **production‑grade, fully handshaked FPGA pipeline** for **American option pricing** using the **Longstaff–Schwartz Monte Carlo (LSMC)** method with **Quasi‑Monte Carlo (Sobol) sequences**.  
-The design is proven in **Vivado** on **Digilent Arty A7-100T** (primary STA/bitstream target) and was originally sized for **Spartan‑7**; see [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) for utilization and clock targets.  
+The design is proven in **Vivado** on **Digilent Arty A7-100T** (primary STA/bitstream target) and was originally sized for **Spartan‑7**; see [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md) for utilization and clock targets.  
 
 In addition to the FPGA implementation, the repository includes a **fixed‑point C++ baseline**:
 - Located at `baseline/cpp_fixed/`.  
@@ -13,10 +13,10 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 ---
 
 ## Validation And Status
-- Documentation index: [`docs/README.md`](docs/README.md)
-- Validation: [`docs/VALIDATION.md`](docs/VALIDATION.md)
-- Implementation snapshot: [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)
-- Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- Documentation index: [`.user/README.md`](.user/README.md)
+- Validation: [`.user/VALIDATION.md`](.user/VALIDATION.md)
+- Implementation snapshot: [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md)
+- Roadmap: [`.user/ROADMAP.md`](.user/ROADMAP.md)
 - Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity verified bit-identical price. **Arty A7-100T** routed timing meets constraints at **83.333 MHz** (`sys_clk` 12 ns in XDC); **Arty A7-35T** does not fit LUT budget without further sharing.
 
 ---
@@ -91,7 +91,7 @@ cd baseline/cpp_fixed && g++ -std=c++17 main.cpp pricing.cpp linalg.cpp sobol_wr
 python scripts/validate_numerical.py
 ```
 
-**Arty S7-50 bitstream (scripted):** full flow is documented in [`docs/FPGA_BUILD.md`](docs/FPGA_BUILD.md). Quick synthesis check:
+**Arty S7-50 bitstream (scripted):** full flow is documented in [`.user/FPGA_BUILD.md`](.user/FPGA_BUILD.md). Quick synthesis check:
 
 ```powershell
 $env:VIVADO_SYNTH_ONLY = "1"
@@ -120,7 +120,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 ### Current status
 - Top-level two-pass LSMC engine compiles and elaborates clean. **All modules fully synthesizable.**
 - **Numerical validation passed**: FPGA price = 6.553 vs C++ baseline = 6.50 (**0.8% relative error**).
-- 8 numerical bugs fixed in Phase 7 (see [`docs/VALIDATION.md`](docs/VALIDATION.md) for details).
+- 8 numerical bugs fixed in Phase 7 (see [`.user/VALIDATION.md`](.user/VALIDATION.md) for details).
 - PUT/CALL runtime flag implemented (D1 complete).
 - Phase 4 complete: FSM fires Sobol for step k+1 in the same cycle GBM outputs step k.
 - Phase 6 complete: benchmark + live + sweep host modes in `uart_host.py`.
@@ -164,7 +164,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 - [x] Lane replication (NUM_LANES 2/4/8): bit-identical price vs single lane in sim; on-board throughput TBD.
 - [ ] Multi-exercise-date expansion (full backward induction).
 
-> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) for what is built; [`docs/ROADMAP.md`](docs/ROADMAP.md) for next priorities.
+> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md) for what is built; [`.user/ROADMAP.md`](.user/ROADMAP.md) for next priorities.
 
 ---
 

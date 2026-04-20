@@ -96,4 +96,4 @@ $env:VIVADO_SYNTH_ONLY = "1"
 - Open `vivado_build/arty_s7_50/vivado.log` and `arty_s7_qmc.runs/synth_1/runme.log`.
 - Common issues: missing mem file path (run from repo via script), part typo, IP version mismatch (`div_gen` 5.1).
 
-See also: [`ROADMAP.md`](ROADMAP.md) (implementation + verification milestones), [`../README.md`](../README.md).
+See also: [`ROADMAP.md`](ROADMAP.md), [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md), [`.cursor/rules/rules.md`](../.cursor/rules/rules.md) (Arty pin table).
