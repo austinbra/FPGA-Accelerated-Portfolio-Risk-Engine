@@ -164,7 +164,7 @@ Three host-side modes are supported via `src/uart_host.py`:
 - [x] Lane replication (NUM_LANES 2/4/8): bit-identical price vs single lane in sim; on-board throughput TBD.
 - [ ] Multi-exercise-date expansion (full backward induction).
 
-> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable. See [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md) for what is built; [`.user/ROADMAP.md`](.user/ROADMAP.md) for next priorities.
+> :warning: Active development — Phases 1-13 complete. All modules fully synthesizable.
 
 ---
 
