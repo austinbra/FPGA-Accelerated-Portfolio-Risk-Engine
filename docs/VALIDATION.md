@@ -57,7 +57,7 @@ Optional cleanup:
 | Multi-lane parity | `NUM_LANES=2` bit-identical to `NUM_LANES=1` | Passing |
 | Multi-lane parity | `NUM_LANES=4` bit-identical to `NUM_LANES=1` | Passing |
 | Multi-lane parity | `NUM_LANES=8` bit-identical to `NUM_LANES=1` | Passing |
-| FPGA hardware | On-board price matches simulation | Not yet run |
+| FPGA (optional hardware) | On-board UART price check vs simulation | Out of scope for default CI |
 
 ---
 

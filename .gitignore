@@ -106,11 +106,18 @@ dfx_runtime.txt
 # Obsidian vault (local knowledge base, not version-controlled)
 vault/
 
+# Private / resume-local notes (optional on-disk only; not published)
+.user/
+
+# Optional scratch (never commit secrets or keys)
+local/
+*.local.md
+.env
+.env.*
+secrets/
+
 # -------------------------
-# 6) Cursor / local AI workspace ("memory layer")
+# 6) Cursor / local AI workspace — keep off public clone
 # -------------------------
-# Rules and agent context stay local; only the human index is tracked.
-# (Cannot re-include a file under an ignored parent; ignore contents, not the dir.)
-.cursor/*
-!.cursor/README.md
+.cursor/
 .specstory/

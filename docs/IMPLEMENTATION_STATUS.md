@@ -1,6 +1,6 @@
 # QMC-LSM-to-FPGA — Implementation Status
 
-> **Where we are:** All pipeline modules complete and fully synthesizable. Multi-lane (`NUM_LANES` 1/2/4/8) verified bit-identical in simulation. **Arty A7-100T** place/route meets timing at the **83.333 MHz** constraint (12 ns `sys_clk` in XDC — honest STA for current RTL). **Arty A7-35T** does **not** fit (LUT logic over the part budget). Next: optional silicon UART check, Plan B or fewer lanes for 35T, or re-pipeline multiply if you must close **100 MHz** again.
+> **Where we are:** All pipeline modules complete and fully synthesizable. Multi-lane (`NUM_LANES` 1/2/4/8) verified bit-identical in simulation. **Arty A7-100T** place/route meets timing at the **83.333 MHz** constraint (12 ns `sys_clk` in XDC). **Arty A7-35T** does **not** fit (LUT logic over the part budget). Primary performance story: RTL + STA-scaled cycles (`run_virtual_a7_benchmark.ps1` / `--target virtual`). Next: Plan B or fewer lanes for 35T, or re-pipeline multiply if you must close **100 MHz** again.
 
 Last updated: 2026-04-19
 
@@ -71,8 +71,8 @@ Full implementation **does not fit**: DRC **`UTLZ-1`** before place — **LUT as
 
 | Priority | Work | Effort |
 |----------|------|--------|
-| High | **Priority 1a (done):** STA + bitstream at **83.333 MHz**; virtual throughput: `run_virtual_a7_benchmark.ps1` / `uart_host.py --target virtual`. | — |
-| High | **Priority 1b (pending, needs board):** program A7-100T, `uart_host.py --target fpga --port COMx`; confirm price `0x000b93cd` and real UART timing. | Low |
+| High | **Arty A7-100T:** STA + bitstream at **83.333 MHz**; throughput via `run_virtual_a7_benchmark.ps1` / `uart_host.py --target virtual` (cycles × STA fclk). | — |
+| Medium | **Optional USB-UART on hardware:** same host flow as [`FPGA_BUILD.md`](FPGA_BUILD.md) when validating on a physical Arty. | Low |
 | Medium | **If 35T is a hard target:** Plan B shared dividers for beta/mean path, or shrink design. | Medium |
 | Medium | **If 100 MHz STA is required** without relaxing XDC: re-implement `fxMul` pipelining with a **proven** sim/UART handshake (avoid the deadlocked variant). | Medium |
 | Medium | Multi-exercise-date expansion (full backward induction, multiple regression passes). | High |
@@ -158,4 +158,4 @@ Full validation procedure and gate criteria: [`VALIDATION.md`](VALIDATION.md). *
 - Q16.16 range: max representable value is about 32767. Stock prices above about $30K would overflow.
 - Sobol quality: degrades above about 20-30 dimensions. Keep M <= 20 in practice.
 - **Timing vs clock:** Routed timing is clean at **83.333 MHz** per XDC; **not** closed at **100 MHz** with current `FP_MUL_LATENCY=1` RTL (WNS ≈ −1.65 ns at 10 ns period in that configuration).
-- Silicon optional: sim + STA are the primary verification paths so far; on-board UART not required for a cycle-accurate wall-time story.
+- **Verification:** RTL simulation + Vivado STA are the primary gates; virtual benchmark gives cycle-accurate wall time at the STA clock without requiring a board.

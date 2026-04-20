@@ -11,7 +11,7 @@ param(
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
     [switch]$DebugReg,   # -d REG_DEBUG for regression pipeline tracing
-    [int]$NumLanes = 1,  # 1 = default; 2/3/4/8 select lane wrappers (see .user/VALIDATION.md)
+    [int]$NumLanes = 1,  # 1 = default; 2/3/4/8 select lane wrappers (see docs/VALIDATION.md)
     [string[]]$TestPlusarg = @()  # e.g. paths=64 steps=12 S0=6553600 ... passed to xsim -testplusarg
 )
 
