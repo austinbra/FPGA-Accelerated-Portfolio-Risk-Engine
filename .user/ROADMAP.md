@@ -3,7 +3,7 @@
 > **What's already built:** see [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)
 > **How to verify:** see [`VALIDATION.md`](VALIDATION.md)
 
-Last updated: 2026-04-19
+Last updated: 2026-04-19 (Priority 1 split: 1a / 1b)
 
 ---
 
@@ -17,30 +17,41 @@ Last updated: 2026-04-19
 
 ---
 
-## Completed: Multi-lane simulation
+## Completed: Multi-lane simulation (not the same as silicon Priority 1b)
 
 **Done:** `NUM_LANES=4` and `NUM_LANES=8` produce the same Q16.16 price as `NUM_LANES=1` (`0x000b93cd` with default TB params). Wrappers: `tb_top_option_pricer_uart_compute_lanes4` / `_lanes8`; run `./scripts/run_tb_top_uart_safe.ps1 -ComputeMode -NumLanes 4|8`.
 
-**Throughput:** Lane scaling for wall time is characterized with **RTL simulation + STA-scaled cycles** (`run_virtual_a7_benchmark.ps1`). On-board lane vs fMAX sweeps are optional when hardware is available.
+**Deferred to silicon:** Actual throughput / fMAX vs lane count — measure on-board under **Priority 1b** when hardware is available.
 
 **Constraint:** `lat_N` must be divisible by `NUM_LANES`.
 
 ---
 
-## Priority 1: Arty A7-100T implementation + verification — **done (STA + RTL)**
+## Priority 1a: A7-100T implementation + STA (no board required) — **done**
 
-**Goal:** Bitstream + timing closure at the XDC clock target; reproducible performance numbers from RTL aligned with post-route STA.
+**Goal:** Bitstream + timing closure at the XDC clock target so the design is **ready** for Arty A7-100T.
 
 **Done (checklist):**
 1. Full build: `.\scripts\run_vivado_build_arty_a7.ps1 -TimeoutSeconds 14400`
 2. `vivado_build/arty_a7_100/timing_post_route.rpt`: WNS ≥ 0 for `sys_clk` (**12 ns** → **83.333 MHz** in current `constraints/arty_a7_100.xdc`).
 3. Bitstream path: `vivado_build/arty_a7_100/arty_a7_qmc.bit` (after successful impl).
 
-**Throughput / benchmark (no board required):** `.\scripts\run_virtual_a7_benchmark.ps1` or `python src/uart_host.py --mode benchmark --target virtual --param-file …` — DUT `core_cycles` from xsim × **1/fclk** (STA target). See [`FPGA_BUILD.md`](FPGA_BUILD.md).
+**Throughput without silicon:** `.\scripts\run_virtual_a7_benchmark.ps1` or `python src/uart_host.py --mode benchmark --target virtual --param-file …` — DUT `core_cycles` from xsim × **1/fclk** (same STA fclk). See [`.user/FPGA_BUILD.md`](FPGA_BUILD.md).
 
-**Optional on hardware:** Program the A7-100T and run `uart_host.py --target fpga` the same way as in [`FPGA_BUILD.md`](FPGA_BUILD.md) when you want USB-UART confirmation on silicon.
+---
 
-**Arty S7-50 (legacy / smaller part):** see [`FPGA_BUILD.md`](FPGA_BUILD.md) — `scripts/run_vivado_build_arty_s7.ps1`. Pre–Plan-A impl did not fit; re-try only after confirming resource goals.
+## Priority 1b: Arty A7-100T silicon smoke test — **pending** (needs hardware)
+
+**Goal:** Prove USB-UART, IO, and host flow on real silicon; compare to simulation.
+
+**Steps (Arty A7-100T):**
+1. Program `vivado_build/arty_a7_100/arty_a7_qmc.bit` (e.g. `.\scripts\program_arty_a7.ps1` or Vivado Hardware Manager).
+2. Connect USB-UART; run `python src/uart_host.py --mode benchmark --target fpga --port COMx --param-file baseline\cpp_fixed\params_example.txt` (or `.\scripts\run_fpga_benchmark.ps1 -Port COMx`).
+3. Confirm price vs `./scripts/run_tb_top_uart_safe.ps1 -ComputeMode` → **`0x000b93cd`** (same param semantics as your chosen `param` file / TB).
+
+**Steps (Arty S7-50 — legacy / smaller part):** see [`.user/FPGA_BUILD.md`](FPGA_BUILD.md) — `scripts/run_vivado_build_arty_s7.ps1`. Pre–Plan-A impl did not fit; re-try only after confirming resource goals.
+
+**Deliverable:** Optional hardware-measured price match; real UART round-trip time; **or** defer 1b entirely if you only need STA + virtual cycles (document which you used).
 
 ---
 

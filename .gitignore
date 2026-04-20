@@ -107,7 +107,7 @@ dfx_runtime.txt
 vault/
 
 # Maintainer-only roadmap (never commit — local backlog / silicon checklist)
-.user/ROADMAP_PRIVATE.md
+.user/*
 
 # Optional scratch (never commit secrets or keys)
 local/
