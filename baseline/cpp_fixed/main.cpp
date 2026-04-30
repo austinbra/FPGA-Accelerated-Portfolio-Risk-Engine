@@ -1,4 +1,5 @@
 #include "pricing.h"
+#include "rtl_math.h"
 #include "sobol_wrapper.h"
 #include "types.h"
 #include "utils.h"
@@ -13,8 +14,13 @@ int main(int argc, char *argv[])
     double r_d = toDouble(r_DEFAULT);
     double sigma_d = toDouble(sigma_DEFAULT);
     double T_d = toDouble(T_DEFAULT);
+    int option_type = 1; // Default to PUT so early-exercise logic is financially meaningful.
+    bool fpga_style = true; // Match current RTL: one exercise date at M-1.
+    bool trace_numerical = false;
+    std::string direction_file;
+    std::string lut_dir;
 
-    if (!parseArgs(argc, argv, N, M, S0_d, K_d, r_d, sigma_d, T_d))
+    if (!parseArgs(argc, argv, N, M, S0_d, K_d, r_d, sigma_d, T_d, option_type, fpga_style, trace_numerical, direction_file, lut_dir))
     {
         std::cerr << "Invalid arguments.\n";
         std::cerr << "Usage:\n"
@@ -25,7 +31,14 @@ int main(int argc, char *argv[])
                   << "  --K       <float>   Strike price (e.g., 100.0)\n"
                   << "  --r       <float>   Risk-free rate (e.g., 0.05)\n"
                   << "  --sigma   <float>   Volatility (e.g., 0.2)\n"
-                  << "  --T       <float>   Time to maturity in years (e.g., 1.0)\n";
+                  << "  --T       <float>   Time to maturity in years (e.g., 1.0)\n"
+                  << "  --option-type <0|1> 0=CALL, 1=PUT (default: 1)\n"
+                  << "  --call / --put      Convenience aliases for option type\n"
+                  << "  --fpga-style        Match current RTL single-exercise flow (default)\n"
+                  << "  --full-lsm          Run full backward-induction LSM baseline\n"
+                  << "  --trace-numerical   Emit stage-by-stage raw Q16.16 trace\n"
+                  << "  --direction-file <path> RTL Sobol direction.mem to mirror\n"
+                  << "  --lut-dir <path>    Directory containing RTL fixed-point LUT .mem files\n";
         return 1;
     }
 
@@ -37,17 +50,27 @@ int main(int argc, char *argv[])
 
     Timer timer;
     timer.reset();
+    setPricingTrace(trace_numerical);
+    if (!lut_dir.empty()) {
+        setRtlLutDirectory(lut_dir);
+    }
 
-    SobolGenerator sobol(M);
+    SobolGenerator sobol(M, 0, direction_file);
     std::vector<Path> paths(N, Path(M));
     simulatePaths(N, M, S0_q, r_q, sigma_q, T_q, sobol, paths);
 
     int32_t price_q;
-    backwardInduction(N, M, r_q, T_q, K_q, paths, price_q);
+    if (fpga_style) {
+        singleExerciseInduction(N, M, r_q, T_q, K_q, paths, price_q, option_type != 0);
+    } else {
+        backwardInduction(N, M, r_q, T_q, K_q, paths, price_q, option_type != 0);
+    }
 
     double price_d = toDouble(price_q);
     double elapsed = timer.elapsed();
 
+    std::cout << "Option Type: " << ((option_type != 0) ? "PUT" : "CALL") << "\n";
+    std::cout << "Pricing Mode: " << (fpga_style ? "FPGA_STYLE_SINGLE_EXERCISE" : "FULL_LSM") << "\n";
     std::cout << "Estimated Option Price (Q16.16): " << price_q << "\n";
     std::cout << "Estimated Option Price (double): " << price_d << "\n";
     std::cout << "Elapsed Time: " << elapsed << " seconds\n";

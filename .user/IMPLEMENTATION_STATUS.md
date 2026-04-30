@@ -1,8 +1,8 @@
 # QMC-LSM-to-FPGA — Implementation Status
 
-> **Where we are:** All pipeline modules complete and fully synthesizable. Multi-lane (`NUM_LANES` 1/2/4/8) verified bit-identical in simulation. **Arty A7-100T** place/route meets timing at the **83.333 MHz** constraint (12 ns `sys_clk` in XDC). **Arty A7-35T** does **not** fit (LUT logic over the part budget). Primary performance story: RTL + STA-scaled cycles (`run_virtual_a7_benchmark.ps1` / `--target virtual`). Next: Plan B or fewer lanes for 35T, or re-pipeline multiply if you must close **100 MHz** again.
+> **Where we are:** All pipeline modules complete and fully synthesizable. Default PUT C++/RTL numerical parity is bit-exact through the diagnosis ladder (`N=4/M=4`, `N=8/M=12`, `N=64/M=12`) using the production Sobol QMC stream and RTL fixed-point mirror. Multi-lane (`NUM_LANES` 1/2/4/8) was previously verified bit-identical in simulation. **Arty A7-100T** place/route meets timing at the **83.333 MHz** constraint (12 ns `sys_clk` in XDC). **Arty A7-35T** does **not** fit (LUT logic over the part budget). Primary performance story: RTL + STA-scaled cycles (`run_virtual_a7_benchmark.ps1` / `--target virtual`). Next: Plan B or fewer lanes for 35T, or re-pipeline multiply if you must close **100 MHz** again.
 
-Last updated: 2026-04-19
+Last updated: 2026-04-28
 
 ---
 
@@ -28,6 +28,7 @@ Last updated: 2026-04-19
 | 16 | Host: benchmark mode (CPU vs FPGA price + timing) | Done |
 | 17 | Host: live mode (Yahoo Finance params) | Done |
 | 18 | Host: convergence sweep (`--mode sweep`) | Done |
+| 19 | Bit-exact C++ FPGA-style mirror (RTL Sobol `direction.mem`, skip-zero guard, LUT/div/sqrt/inv-CDF/GBM/regression/final average) | Done |
 
 ---
 
@@ -35,12 +36,11 @@ Last updated: 2026-04-19
 
 | Config | Q16.16 hex | Float approx | vs C++ baseline |
 |--------|-----------|--------------|----------------|
-| `NUM_LANES=1` | `0x000b93cd` | approx 11.58 | within QMC variance |
-| `NUM_LANES=2` | `0x000b93cd` | approx 11.58 | bit-identical |
-| `NUM_LANES=4` | `0x000b93cd` | approx 11.58 | bit-identical |
-| `NUM_LANES=8` | `0x000b93cd` | approx 11.58 | bit-identical |
+| Default PUT, `N=64`, `M=12`, `NUM_LANES=1` | `0x0006a7a2` | approx 6.65482 | bit-exact C++/RTL trace parity |
+| Diagnostic PUT, `N=8`, `M=12`, `NUM_LANES=1` | trace-only | trace-only | bit-exact C++/RTL trace parity |
+| Diagnostic PUT, `N=4`, `M=4`, `NUM_LANES=1` | trace-only | trace-only | bit-exact C++/RTL trace parity |
 
-Parameters used: N=64 paths, M=12 steps, S0=K=100, r=0.05, sigma=0.2, T=1.0, CALL
+Parameters used for the default price table: N=64 paths, M=12 steps, S0=K=100, r=0.05, sigma=0.2, T=1.0, PUT. The production Sobol contract is RTL `direction.mem`, Sobol index starts at 1, and `sobol_out[31:16] == 0` is remapped to `u_q16 = 1` before inverse-CDF. The C++ comparison mode defaults to the current RTL's single exercise date at `M-1`; `--full-lsm` remains a higher-level CPU model, not the hardware parity oracle.
 
 ---
 
@@ -76,6 +76,7 @@ Full implementation **does not fit**: DRC **`UTLZ-1`** before place — **LUT as
 | Medium | **If 35T is a hard target:** Plan B shared dividers for beta/mean path, or shrink design. | Medium |
 | Medium | **If 100 MHz STA is required** without relaxing XDC: re-implement `fxMul` pipelining with a **proven** sim/UART handshake (avoid the deadlocked variant). | Medium |
 | Medium | Multi-exercise-date expansion (full backward induction, multiple regression passes). | High |
+| Medium | Financial accuracy study against high-precision references/control variates after bit-exact hardware parity. | Medium |
 | Low | ROM → BRAM inference audit (`ln`/exp LUT `.mem` paths). | Low |
 | Low | Multi-batch UART regression (`-Multibatch`) stability. | Low |
 

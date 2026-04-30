@@ -21,6 +21,11 @@ module lsm_decision #(
     input  logic                     option_type,  // 0=CALL max(S-K,0), 1=PUT max(K-S,0)
 
     output logic signed [WIDTH-1:0]  PV
+`ifdef TOP_NUM_DEBUG
+    ,
+    output logic signed [WIDTH-1:0]  debug_immediate,
+    output logic signed [WIDTH-1:0]  debug_cont_est
+`endif
 );
     // ---------------------------------------------------------------
     // Input latch + busy flag
@@ -122,9 +127,17 @@ module lsm_decision #(
         if (!rst_n) begin
             PV        <= '0;
             valid_out <= 1'b0;
+`ifdef TOP_NUM_DEBUG
+            debug_immediate <= '0;
+            debug_cont_est  <= '0;
+`endif
         end else begin
             if (v2 && !valid_out) begin
                 PV        <= (payoff >= c_val_next) ? payoff : in_buf.cont_value;
+`ifdef TOP_NUM_DEBUG
+                debug_immediate <= payoff;
+                debug_cont_est  <= c_val_next;
+`endif
                 valid_out <= 1'b1;
             end else if (valid_out && ready_in) begin
                 valid_out <= 1'b0;

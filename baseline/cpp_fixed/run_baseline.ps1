@@ -22,7 +22,7 @@ if ($BoostInclude -ne "") {
     $incs = "-I`"$BoostInclude`""
 }
 
-g++ -std=c++17 $defs $incs main.cpp pricing.cpp linalg.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
+g++ -std=c++17 $defs $incs main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
 if ($LASTEXITCODE -ne 0) {
     throw "Build failed."
 }

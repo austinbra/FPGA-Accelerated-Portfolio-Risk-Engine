@@ -31,7 +31,7 @@ def load_params_file(path):
     missing = [k for k in required if k not in params]
     if missing:
         raise ValueError(f"Missing keys in params file: {missing}")
-    opt = params.get("option_type", "0")
+    opt = params.get("option_type", "1")
     return {
         "paths": int(params["paths"]),
         "steps": int(params["steps"]),
@@ -72,7 +72,7 @@ def fetch_live_params(symbol, strike, r, maturity_years):
         "r": float(r),
         "sigma": sigma,
         "T": float(maturity_years),
-        "option_type": 0,  # CALL by default
+        "option_type": 1,  # PUT by default so early-exercise logic is meaningful
     }
 
 
@@ -82,7 +82,7 @@ def send_params_uart(params, port, baud, timeout_s):
     except ImportError as exc:
         raise RuntimeError("pyserial is required for FPGA UART target. Install with: pip install pyserial") from exc
 
-    opt = params.get("option_type", 0)
+    opt = params.get("option_type", 1)
     payload = [
         int(params["paths"]),
         int(params["steps"]),
@@ -124,7 +124,7 @@ def build_cpu_baseline(baseline_dir, use_boost, boost_include):
         cmd.append("-DUSE_BOOST_SOBOL")
     if boost_include:
         cmd.append(f"-I{boost_include}")
-    cmd += ["main.cpp", "pricing.cpp", "linalg.cpp", "sobol_wrapper.cpp", "utils.cpp", "-o", "fixed_baseline"]
+    cmd += ["main.cpp", "pricing.cpp", "linalg.cpp", "rtl_math.cpp", "sobol_wrapper.cpp", "utils.cpp", "-o", "fixed_baseline"]
     subprocess.run(cmd, cwd=baseline_dir, check=True)
 
 
@@ -142,6 +142,12 @@ def run_cpu_baseline(params, baseline_dir):
         "--r", str(params["r"]),
         "--sigma", str(params["sigma"]),
         "--T", str(params["T"]),
+        "--option-type", str(int(params.get("option_type", 1)) & 1),
+    ]
+    repo_root = Path(baseline_dir).parents[1]
+    cmd += [
+        "--direction-file", str(repo_root / "src" / "gen" / "direction.mem"),
+        "--lut-dir", str(repo_root / "src" / "gen"),
     ]
     proc = subprocess.run(cmd, cwd=baseline_dir, check=True, capture_output=True, text=True)
     out = (proc.stdout or "") + (proc.stderr or "")
@@ -153,7 +159,7 @@ def run_cpu_baseline(params, baseline_dir):
 
 
 def print_params(params):
-    opt_label = "PUT" if params.get("option_type", 0) else "CALL"
+    opt_label = "PUT" if params.get("option_type", 1) else "CALL"
     print("Parameters:")
     print(f"  paths={params['paths']} steps={params['steps']} S0={params['S0']:.6f} K={params['K']:.6f}")
     print(f"  r={params['r']:.6f} sigma={params['sigma']:.6f} T={params['T']:.6f} option_type={opt_label}")

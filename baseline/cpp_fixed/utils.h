@@ -13,9 +13,12 @@ struct Timer {
 };
 
 bool parseArgs(int argc, char* argv[],
-               int& N, int& M, double& S0, double& K, double& r, double& sigma, double& T);
+               int& N, int& M, double& S0, double& K, double& r, double& sigma, double& T,
+               int& optionType, bool& fpgaStyle, bool& traceNumerical,
+               std::string& directionFile, std::string& lutDirectory);
 
 bool loadParamsFromFile(const std::string& filePath,
-                        int& N, int& M, double& S0, double& K, double& r, double& sigma, double& T);
+                        int& N, int& M, double& S0, double& K, double& r, double& sigma, double& T,
+                        int& optionType, bool& fpgaStyle, std::string& directionFile, std::string& lutDirectory);
 
 #endif

@@ -11,11 +11,31 @@ param(
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
     [switch]$DebugReg,   # -d REG_DEBUG for regression pipeline tracing
+    [switch]$DebugNum,   # -d TOP_NUM_DEBUG for numerical comparison tracing
     [int]$NumLanes = 1,  # 1 = default; 2/3/4/8 select lane wrappers (see .user/VALIDATION.md)
+    [string]$TestPlusargs = "",  # comma-separated form for Python/native callers
     [string[]]$TestPlusarg = @()  # e.g. paths=64 steps=12 S0=6553600 ... passed to xsim -testplusarg
 )
 
 $ErrorActionPreference = "Stop"
+
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$toolTmpRoot = Join-Path $repoRoot ".tmp"
+New-Item -ItemType Directory -Force -Path $toolTmpRoot | Out-Null
+$env:TEMP = $toolTmpRoot
+$env:TMP = $toolTmpRoot
+
+if ($TestPlusargs) {
+    $TestPlusarg += @($TestPlusargs -split "," | Where-Object { $_ })
+}
+
+try {
+    Get-ChildItem Env: | Out-Null
+} catch {
+    # Some constrained launchers provide both Path and PATH. Start-Process
+    # builds a case-insensitive environment map and fails on that duplicate.
+    Remove-Item Env:PATH -ErrorAction SilentlyContinue
+}
 
 function Format-ExeArgument([string]$s) {
     # CreateProcess command line: quote args that contain spaces, quotes, or '=' (xsim splits bare KEY=value).
@@ -38,8 +58,9 @@ function Invoke-ToolWithTimeout {
     $argString = ($CmdArgs | ForEach-Object { Format-ExeArgument $_ }) -join ' '
     Write-Host "Running: $Exe $argString"
 
-    $stdoutFile = [System.IO.Path]::GetTempFileName()
-    $stderrFile = [System.IO.Path]::GetTempFileName()
+    $tag = [Guid]::NewGuid().ToString("N")
+    $stdoutFile = Join-Path $toolTmpRoot ("tool_stdout_{0}.log" -f $tag)
+    $stderrFile = Join-Path $toolTmpRoot ("tool_stderr_{0}.log" -f $tag)
     try {
         # Single Arguments string so KEY=value plusargs are not split at '=' by the shell/loader.
         $argLine = ($CmdArgs | ForEach-Object { Format-ExeArgument $_ }) -join ' '
@@ -97,6 +118,7 @@ $baseArgs = @("-nolog", "-sv")
 if ($DebugAcc) { $baseArgs += "-d"; $baseArgs += "ACC_DEBUG" }
 if ($DebugFsm) { $baseArgs += "-d"; $baseArgs += "TOP_FSM_DEBUG" }
 if ($DebugReg) { $baseArgs += "-d"; $baseArgs += "REG_DEBUG" }
+if ($DebugNum) { $baseArgs += "-d"; $baseArgs += "TOP_NUM_DEBUG" }
 
 # Single xvlog invocation (batched mode caused timeouts on heavy LUT modules)
 Write-Host "xvlog ($($sources.Count) files)"

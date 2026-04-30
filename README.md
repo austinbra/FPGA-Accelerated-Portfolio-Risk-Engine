@@ -17,7 +17,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 - Validation: [`.user/VALIDATION.md`](.user/VALIDATION.md)
 - Implementation snapshot: [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md)
 - Roadmap: [`.user/ROADMAP.md`](.user/ROADMAP.md)
-- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine with antithetic variates compiles/elaborates clean. Numerical validation achieved 0.8% relative error vs C++ baseline. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity verified bit-identical price. **Arty A7-100T** routed timing meets constraints at **83.333 MHz** (`sys_clk` 12 ns in XDC); **Arty A7-35T** does not fit LUT budget without further sharing.
+- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine compiles/elaborates clean. Default PUT C++/RTL diagnosis is bit-exact for `N=4/M=4`, `N=8/M=12`, and `N=64/M=12` using the RTL Sobol stream and fixed-point mirror. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity previously verified bit-identical price. **Arty A7-100T** routed timing meets constraints at **83.333 MHz** (`sys_clk` 12 ns in XDC); **Arty A7-35T** does not fit LUT budget without further sharing.
 
 ---
 
@@ -39,7 +39,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 
 The design is a **fully pipelined, streaming datapath** with ready/valid handshaking and skid buffers at every stage boundary. The top-level orchestrates two passes (training + decision) while the pipeline stages process data in parallel with overlapping execution.
 
-- **Sobol generator**: Gray‑coded XOR tree with BRAM‑stored direction numbers. Skid-buffered output.
+- **Sobol generator**: Gray‑coded XOR tree with BRAM‑stored direction numbers. Production stream starts at Sobol index 1 and applies a one-LSB lower guard after `sobol_out[31:16]` truncation so inverse-CDF never receives `u=0`. Skid-buffered output.
 - **Inverse CDF** (~15 cycles):  
   - Fold U(0,1) to (0,0.5] with negate flag (event-alignment FIFO for negate, combinational read).
   - ln (2-stage BRAM LUT) + multiply by −2 + sqrt (digit-by-digit restoring, 24 `COMP` cycles) → t.
@@ -96,22 +96,22 @@ vivado -mode batch -source scripts/run_xvlog.tcl
 **Build once** (from `baseline/cpp_fixed/`):
 ```bash
 cd baseline/cpp_fixed
-g++ -std=c++17 main.cpp pricing.cpp linalg.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
+g++ -std=c++17 main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
 ```
 On Windows the artifact may be `fixed_baseline.exe`; `uart_host.py` accepts either name.
 
 **Run standalone** (arguments mirror the `key=value` param file):
 ```bash
-./fixed_baseline --paths 10000 --steps 50 --S0 100 --K 100 --r 0.05 --sigma 0.2 --T 1.0
+./fixed_baseline --paths 10000 --steps 50 --S0 100 --K 100 --r 0.05 --sigma 0.2 --T 1.0 --put
 ```
-Invalid flags print a usage summary. You can pass **`--input-file path/to/params.txt`**: the loader reads only **`paths`**, **`steps`**, **`S0`**, **`K`**, **`r`**, **`sigma`**, and **`T`** (see `baseline/cpp_fixed/utils.cpp`). Extra keys such as **`option_type` are ignored** by the C++ binary, and this baseline follows a **fixed call-style** payoff path (it does not mirror PUT/CALL switching the way the FPGA UART batch does).
+Invalid flags print a usage summary. You can pass **`--input-file path/to/params.txt`**: the loader reads **`paths`**, **`steps`**, **`S0`**, **`K`**, **`r`**, **`sigma`**, **`T`**, and optional **`option_type`** (`0` = CALL, `1` = PUT), **`direction_file`**, and **`lut_dir`**. The default shared parameter files use **PUT** so the early-exercise path is meaningful. The C++ binary defaults to `--fpga-style`, matching the current RTL single-exercise date at `M-1` and mirroring RTL Sobol/LUT/division/sqrt/inverse-CDF/GBM/regression/final-average behavior; use `--full-lsm` for the full backward-induction CPU model.
 
 **Run via Python host** (same params as a shared file, optional compile):
 ```bash
 python src/uart_host.py --mode benchmark --target cpu --param-file baseline/cpp_fixed/params_example.txt --build-cpu
 ```
 
-Optional Boost Sobol: `--use-boost --boost-include <path>`.
+Sobol QMC from `src/gen/direction.mem` is the production validation stream; Boost/pseudo-random streams are not used as the parity oracle.
 
 ### Simulated FPGA — “virtual” Arty A7-100T benchmark (no hardware)
 
@@ -180,13 +180,13 @@ python src/uart_host.py --mode benchmark --target fpga --param-file baseline/cpp
 |------------------|-----|------------------|
 | **CPU vs FPGA (hardware)** | `--mode benchmark --target both` or `scripts/run_fpga_benchmark.ps1` | Final **BENCHMARK COMPARISON**: prices, **rel_err**, **CPU wall time**, **FPGA compute time** (`core_cycles / fpga_fclk`), **speedup** (UART round-trip is printed separately and is *not* the compute timer). |
 | **CPU vs “FPGA” in sim (STA-scaled)** | `scripts/run_virtual_a7_benchmark.ps1` or `--target virtual` | Script summary: price delta, Q16 line when applicable, **Speedup est** from CPU wall vs scaled sim cycles. Read the **Provenance** / note about TB clock vs STA `fclk`. |
-| **Gate: sim price vs C++ (fixed TB params)** | Build C++ binary, then from repo root: `python scripts/validate_numerical.py` | Runs a **fixed** small case (64 paths, 12 steps—see script) through **xsim** and C++; expects **≤ 1%** relative error. |
+| **Gate: sim price vs C++ (fixed TB params)** | Build C++ binary, then from repo root: `python scripts/validate_numerical.py` | Runs a **fixed** small case (64 paths, 12 steps—see script) through **xsim** and C++; expects exact or 1-LSB Q16.16 parity for the FPGA-style oracle. |
 
 For day-to-day RTL confidence, follow the checklist in [`.user/VALIDATION.md`](.user/VALIDATION.md).
 
 ### Other configurations you may need
 
-- **Param file** (`--param-file`): `paths`, `steps`, `S0`, `K`, `r`, `sigma`, `T`; optional **`option_type`** (`0` = CALL, `1` = PUT) for **`uart_host.py` / UART → FPGA** (and the virtual benchmark, which forwards those fields into RTL plusargs). The **C++** `fixed_baseline` does **not** read `option_type`; for apples-to-apples price checks against the CPU baseline, use **CALL** (`0`) or compare only where that matches the C++ model.
+- **Param file** (`--param-file`): `paths`, `steps`, `S0`, `K`, `r`, `sigma`, `T`; optional **`option_type`** (`0` = CALL, `1` = PUT). `uart_host.py`, the virtual benchmark, the UART testbench, and the C++ `fixed_baseline` all consume this field. The shared repo defaults use **PUT** (`1`) because non-dividend American calls collapse to European-call behavior under the basic GBM assumptions. Current RTL and default C++ comparison mode are single-exercise-date; full multi-date LSM remains roadmap work.
 - **`NUM_LANES` / `-NumLanes`**: `paths` must be divisible by lane count; `lat_N` divisibility rules apply in RTL (see VALIDATION).
 - **Board / build**: Primary **Arty A7-100T**; **A7-35T** script exists but may not meet LUTs without a smaller config. **Arty S7-50** flow and `fxDiv` IP are documented in [`.user/FPGA_BUILD.md`](.user/FPGA_BUILD.md) (`run_vivado_build_arty_s7.ps1`, synth-only env `VIVADO_SYNTH_ONLY`).
 - **UART**: `--port`, `--baud`, `--timeout` on `uart_host.py`.
@@ -201,14 +201,21 @@ Full S7 place/route + bitstream: `.\scripts\run_vivado_build_arty_s7.ps1` (optio
 
 **Numerical validation** (run from **repository root**; builds on the same `run_tb_top_uart_safe.ps1 -ComputeMode` flow as [`.user/VALIDATION.md`](.user/VALIDATION.md)):
 ```bash
-cd baseline/cpp_fixed && g++ -std=c++17 main.cpp pricing.cpp linalg.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline && cd ../..
+cd baseline/cpp_fixed && g++ -std=c++17 main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline && cd ../..
 python scripts/validate_numerical.py
 ```
 `validate_numerical.py` invokes **`powershell`** to drive the Vivado tools (as on Windows). On Linux or macOS you typically need **PowerShell Core** available as `powershell`, or run the checklist commands yourself instead of this script.
 
+**Numerical diagnosis** emits stage-by-stage C++ and RTL Q16.16 traces and reports the first raw mismatch:
+```bash
+python scripts/diagnose_numerical.py --paths 4 --steps 4 --option-type 1
+python scripts/diagnose_numerical.py --paths 8 --steps 12 --option-type 1
+python scripts/diagnose_numerical.py --paths 64 --steps 12 --option-type 1
+```
+
 ### Current status
 - Top-level two-pass LSMC engine compiles and elaborates clean. **All modules fully synthesizable.**
-- **Numerical validation passed**: FPGA price = 6.553 vs C++ baseline = 6.50 (**0.8% relative error**).
+- Default ATM PUT diagnosis passes bit-exact C++/RTL trace parity for the small, medium, and fixed validation cases. Use `scripts/diagnose_numerical.py` whenever a future change reintroduces a first divergent stage.
 - 8 numerical bugs fixed in Phase 7 (see [`.user/VALIDATION.md`](.user/VALIDATION.md) for details).
 - PUT/CALL runtime flag implemented (D1 complete).
 - Phase 4 complete: FSM fires Sobol for step k+1 in the same cycle GBM outputs step k.
@@ -243,7 +250,8 @@ python scripts/validate_numerical.py
 - [x] **Phase 4: Fully pipelined top-level** — fire Sobol for step k+1 in same cycle as GBM output.
 - [x] Two running modes: benchmark (CPU vs FPGA comparison) + live (Yahoo Finance data).
 - [x] PUT/CALL runtime flag (D1) — 1-bit option_type through UART, top-level, and lsm_decision.
-- [x] **Numerical validation**: FPGA 6.553 vs C++ 6.50 = 0.8% error (8 bugs fixed in Phase 7).
+- [x] **Historical CALL numerical validation**: FPGA 6.553 vs C++ 6.50 = 0.8% error (8 bugs fixed in Phase 7).
+- [x] **Default PUT numerical validation**: C++ FPGA-style oracle mirrors RTL Sobol/inv-CDF/LUT/GBM/regression/final divide; diagnosis passes bit-exact for `N=4/M=4`, `N=8/M=12`, and `N=64/M=12`.
 - [x] Synthesizable fxSqrt (digit-by-digit restoring, 24 iterations; `FP_SQRT_LATENCY=24`; no DSP/BRAM).
 - [x] Synthesizable fxlnLUT (2-stage BRAM + `$readmemh`; `scripts/gen_ln_lut_4096.py` for ROM data).
 - [x] Richer error reporting (D2): 5-word result packet with timeout/singular status flags.

@@ -90,6 +90,20 @@ module top_mc_option_pricer #(
     } state_t;
     state_t state;
 
+`ifdef TOP_NUM_DEBUG
+    function automatic string num_pass_name(input state_t st);
+        case (st)
+            ST_DECIDE_STEP, ST_DECIDE_FEED, ST_FINAL_DIV: num_pass_name = "decide";
+            default: num_pass_name = "train";
+        endcase
+    endfunction
+
+    logic [15:0] dbg_lsm_path;
+    logic [15:0] dbg_pv_path;
+    logic signed [W-1:0] lsm_debug_immediate;
+    logic signed [W-1:0] lsm_debug_cont_est;
+`endif
+
     // Latched parameters (stable through entire computation)
     logic signed [W-1:0] lat_S0, lat_K, lat_r, lat_sigma, lat_T;
     logic [15:0]         lat_N;
@@ -235,7 +249,7 @@ module top_mc_option_pricer #(
     generate
     for (genvar ln = 0; ln < NUM_LANES; ln++) begin : gen_sobol_drive
         assign lane_sobol_vin[ln]  = sobol_vin;
-        assign lane_sobol_idx[ln]  = {16'd0, path_idx} + W'(ln);
+        assign lane_sobol_idx[ln]  = {16'd0, path_idx} + W'(ln) + W'(1);
         assign lane_sobol_dim[ln] = sobol_dim;
     end
     endgenerate
@@ -246,6 +260,7 @@ module top_mc_option_pricer #(
         logic sobol_vout_i;
         logic [W-1:0] sobol_out_i;
         logic [W-1:0] sobol_direction_i [0:MAX_STEPS*W-1];
+        logic [15:0] sobol_q16_hi_i;
         logic signed [W-1:0] sobol_q16_i;
         logic inv_rout_i;
         logic signed [W-1:0] inv_z_i;
@@ -264,7 +279,8 @@ module top_mc_option_pricer #(
             .direction (sobol_direction_i)
         );
 
-        assign sobol_q16_i = $signed({16'd0, sobol_out_i[31:16]});
+        assign sobol_q16_hi_i = sobol_out_i[31:16];
+        assign sobol_q16_i = $signed({16'd0, (sobol_q16_hi_i == 16'd0) ? 16'd1 : sobol_q16_hi_i});
 
         inverseCDF u_inv (
             .clk       (clk_100),
@@ -290,6 +306,46 @@ module top_mc_option_pricer #(
             .vol_sqrt_dt (vol_sqrt_dt_reg),
             .S_next      (lane_gbm_s_next[ln])
         );
+
+`ifdef TOP_NUM_DEBUG
+        logic [15:0] dbg_path_q;
+        logic [7:0]  dbg_step_q;
+
+        always_ff @(posedge clk_100 or negedge rst_btn_n) begin
+            if (!rst_btn_n) begin
+                dbg_path_q <= '0;
+                dbg_step_q <= '0;
+            end else begin
+                if (lane_sobol_vin[ln] && lane_sobol_rout[ln]) begin
+                    dbg_path_q <= path_idx + 16'(ln);
+                    dbg_step_q <= step_idx + 8'd1;
+                end
+                if (sobol_vout_i) begin
+                    $display("[NUM][PATH] pass=%s path=%0d step=%0d lane=%0d key=sobol_raw value=0x%08h signed=%0d",
+                             num_pass_name(state), dbg_path_q, dbg_step_q, ln,
+                             sobol_out_i, $signed(sobol_out_i));
+                    $display("[NUM][PATH] pass=%s path=%0d step=%0d lane=%0d key=u_q16 value=0x%08h signed=%0d",
+                             num_pass_name(state), dbg_path_q, dbg_step_q, ln,
+                             sobol_q16_i, $signed(sobol_q16_i));
+                end
+                if (lane_inv_vout[ln]) begin
+                    $display("[NUM][PATH] pass=%s path=%0d step=%0d lane=%0d key=z value=0x%08h signed=%0d",
+                             num_pass_name(state), dbg_path_q, dbg_step_q, ln,
+                             inv_z_i, $signed(inv_z_i));
+                end
+                if (u_gbm.exp_vin) begin
+                    $display("[NUM][PATH] pass=%s path=%0d step=%0d lane=%0d key=exp_arg value=0x%08h signed=%0d",
+                             num_pass_name(state), dbg_path_q, dbg_step_q, ln,
+                             u_gbm.exp_arg, $signed(u_gbm.exp_arg));
+                end
+                if (u_gbm.exp_vout) begin
+                    $display("[NUM][PATH] pass=%s path=%0d step=%0d lane=%0d key=exp value=0x%08h signed=%0d",
+                             num_pass_name(state), dbg_path_q, dbg_step_q, ln,
+                             u_gbm.exp_result, $signed(u_gbm.exp_result));
+                end
+            end
+        end
+`endif
 
     end
     endgenerate
@@ -335,6 +391,11 @@ module top_mc_option_pricer #(
         .cont_value  (acc_y),
         .option_type (lat_option_type),
         .PV          (lsm_pv)
+`ifdef TOP_NUM_DEBUG
+        ,
+        .debug_immediate(lsm_debug_immediate),
+        .debug_cont_est (lsm_debug_cont_est)
+`endif
     );
     assign lsm_rin = 1'b1;
 
@@ -412,6 +473,10 @@ module top_mc_option_pricer #(
             lat_sigma <= '0; lat_T <= '0;
             lat_N <= '0; lat_M <= '0;
             lat_option_type <= 1'b0;
+`ifdef TOP_NUM_DEBUG
+            dbg_lsm_path <= '0;
+            dbg_pv_path  <= '0;
+`endif
         end else begin
             // Default: clear one-cycle pulses
             result_valid   <= 1'b0;
@@ -466,6 +531,10 @@ module top_mc_option_pricer #(
                 end
                 else if (sub_phase == 1 && util_div_vout) begin
                     dt_reg   <= util_div_result;
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][INIT] key=dt value=0x%08h signed=%0d",
+                             util_div_result, $signed(util_div_result));
+`endif
                     sub_phase <= '0;
                     state    <= ST_INIT_GBM_CONST;
                 end
@@ -493,6 +562,10 @@ module top_mc_option_pricer #(
                 end
                 else if (sub_phase == 2 && util_mul_vout) begin
                     drift_const_reg <= util_mul_result;
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][INIT] key=drift_const value=0x%08h signed=%0d",
+                             util_mul_result, $signed(util_mul_result));
+`endif
                     util_sqrt_a     <= dt_reg;
                     util_sqrt_vin   <= 1'b1;
                     sub_phase       <= 3'd3;
@@ -505,6 +578,10 @@ module top_mc_option_pricer #(
                 end
                 else if (sub_phase == 4 && util_mul_vout) begin
                     vol_sqrt_dt_reg <= util_mul_result;
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][INIT] key=vol_sqrt_dt value=0x%08h signed=%0d",
+                             util_mul_result, $signed(util_mul_result));
+`endif
                     sub_phase       <= '0;
                     state          <= ST_INIT_DISC;
                 end
@@ -551,6 +628,10 @@ module top_mc_option_pricer #(
                     disc_reg       <= util_div_result;
                     disc_total_reg <= util_div_result;
                     disc_pow_cnt   <= 8'd1;
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][INIT] key=disc value=0x%08h signed=%0d",
+                             util_div_result, $signed(util_div_result));
+`endif
                     sub_phase       <= '0;
                     state          <= ST_INIT_INV_K;
                 end
@@ -570,6 +651,10 @@ module top_mc_option_pricer #(
                 end
                 else if (sub_phase == 1 && util_div_vout) begin
                     inv_K_reg <= util_div_result;
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][INIT] key=inv_K value=0x%08h signed=%0d",
+                             util_div_result, $signed(util_div_result));
+`endif
                     sub_phase  <= '0;
                     state     <= (lat_M <= 2) ? ST_TRAIN_STEP : ST_INIT_DISC_TOTAL;
                 end
@@ -590,6 +675,12 @@ module top_mc_option_pricer #(
                 else if (sub_phase == 1 && util_mul_vout) begin
                     disc_total_reg <= util_mul_result;
                     disc_pow_cnt   <= disc_pow_cnt + 1'b1;
+`ifdef TOP_NUM_DEBUG
+                    if (disc_pow_cnt + 1 >= lat_M - 1) begin
+                        $display("[NUM][INIT] key=disc_total value=0x%08h signed=%0d",
+                                 util_mul_result, $signed(util_mul_result));
+                    end
+`endif
                     sub_phase       <= '0;
                     if (disc_pow_cnt + 1 >= lat_M - 1) begin
                         // disc_total = disc^(M-1) complete
@@ -619,6 +710,11 @@ module top_mc_option_pricer #(
                     sobol_accepted <= 1'b1;
                 end else if (sobol_accepted && gbm_vout && drain_cnt == 0) begin
                     for (int ln = 0; ln < NUM_LANES; ln++) begin
+`ifdef TOP_NUM_DEBUG
+                        $display("[NUM][PATH] pass=train path=%0d step=%0d lane=%0d key=s_next value=0x%08h signed=%0d",
+                                 path_idx + 16'(ln), step_idx + 8'd1, ln,
+                                 lane_gbm_s_next[ln], $signed(lane_gbm_s_next[ln]));
+`endif
                         if (step_idx == lat_M - 2)
                             lane_s_exercise[ln] <= lane_gbm_s_next[ln];
                         lane_s_curr[ln] <= lane_gbm_s_next[ln];
@@ -670,6 +766,18 @@ module top_mc_option_pricer #(
                 else if (sub_phase == 2 && util_mul_vout) begin
                     acc_x  <= util_mul_result;   // normalized S/K
                     if (acc_rout) begin
+`ifdef TOP_NUM_DEBUG
+                        $display("[NUM][ACC-IN] path=%0d step=%0d key=s_exercise value=0x%08h signed=%0d",
+                                 path_idx + lane_feed_idx, lat_M - 1, feed_s_exercise, $signed(feed_s_exercise));
+                        $display("[NUM][ACC-IN] path=%0d step=%0d key=s_terminal value=0x%08h signed=%0d",
+                                 path_idx + lane_feed_idx, lat_M, feed_s_terminal, $signed(feed_s_terminal));
+                        $display("[NUM][ACC-IN] path=%0d step=%0d key=terminal_payoff value=0x%08h signed=%0d",
+                                 path_idx + lane_feed_idx, lat_M, terminal_payoff, $signed(terminal_payoff));
+                        $display("[NUM][ACC-IN] path=%0d step=%0d key=cont_y value=0x%08h signed=%0d",
+                                 path_idx + lane_feed_idx, lat_M - 1, acc_y, $signed(acc_y));
+                        $display("[NUM][ACC-IN] path=%0d step=%0d key=s_norm value=0x%08h signed=%0d",
+                                 path_idx + lane_feed_idx, lat_M - 1, util_mul_result, $signed(util_mul_result));
+`endif
                         acc_vin   <= 1'b1;
                         sub_phase <= '0;
                         // Use (NUM_LANES-1) without LANE_IDX_W' cast: LANE_IDX_W'(NUM_LANES-1)
@@ -702,6 +810,11 @@ module top_mc_option_pricer #(
                 end else if (acc_vout) begin
                     for (int i = 0; i < 3; i++)
                         beta_reg[i] <= acc_beta[i];
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][BETA] key=beta0 value=0x%08h signed=%0d", acc_beta[0], $signed(acc_beta[0]));
+                    $display("[NUM][BETA] key=beta1 value=0x%08h signed=%0d", acc_beta[1], $signed(acc_beta[1]));
+                    $display("[NUM][BETA] key=beta2 value=0x%08h signed=%0d", acc_beta[2], $signed(acc_beta[2]));
+`endif
                     path_idx       <= '0;
                     step_idx       <= '0;
                     lane_feed_idx  <= '0;
@@ -726,6 +839,11 @@ module top_mc_option_pricer #(
                     sobol_accepted <= 1'b1;
                 end else if (sobol_accepted && gbm_vout && drain_cnt == 0) begin
                     for (int ln = 0; ln < NUM_LANES; ln++) begin
+`ifdef TOP_NUM_DEBUG
+                        $display("[NUM][PATH] pass=decide path=%0d step=%0d lane=%0d key=s_next value=0x%08h signed=%0d",
+                                 path_idx + 16'(ln), step_idx + 8'd1, ln,
+                                 lane_gbm_s_next[ln], $signed(lane_gbm_s_next[ln]));
+`endif
                         if (step_idx == lat_M - 2)
                             lane_s_exercise[ln] <= lane_gbm_s_next[ln];
                         lane_s_curr[ln] <= lane_gbm_s_next[ln];
@@ -776,12 +894,24 @@ module top_mc_option_pricer #(
                 else if (sub_phase == 2 && util_mul_vout) begin
                     s_norm_reg <= util_mul_result;
                     if (lsm_rout) begin
+`ifdef TOP_NUM_DEBUG
+                        dbg_lsm_path <= path_idx + lane_feed_idx;
+`endif
                         lsm_vin  <= 1'b1;
                         sub_phase <= 3'd3;
                     end
                 end
                 // sub 3: wait for lsm_decision output
                 else if (sub_phase == 3 && lsm_vout) begin
+`ifdef TOP_NUM_DEBUG
+                    dbg_pv_path <= dbg_lsm_path;
+                    $display("[NUM][LSM] path=%0d step=%0d key=immediate value=0x%08h signed=%0d",
+                             dbg_lsm_path, lat_M - 1, lsm_debug_immediate, $signed(lsm_debug_immediate));
+                    $display("[NUM][LSM] path=%0d step=%0d key=cont_est value=0x%08h signed=%0d",
+                             dbg_lsm_path, lat_M - 1, lsm_debug_cont_est, $signed(lsm_debug_cont_est));
+                    $display("[NUM][LSM] path=%0d step=%0d key=chosen value=0x%08h signed=%0d",
+                             dbg_lsm_path, lat_M - 1, lsm_pv, $signed(lsm_pv));
+`endif
                     util_mul_a   <= disc_total_reg;
                     util_mul_b   <= lsm_pv;
                     util_mul_vin <= 1'b1;
@@ -789,6 +919,10 @@ module top_mc_option_pricer #(
                 end
                 // sub 4: accumulate discounted PV
                 else if (sub_phase == 4 && util_mul_vout) begin
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][PV] path=%0d step=%0d key=discounted_pv value=0x%08h signed=%0d",
+                             dbg_pv_path, lat_M - 1, util_mul_result, $signed(util_mul_result));
+`endif
                     sum_pv    <= sum_pv + {{(64-W){util_mul_result[W-1]}}, util_mul_result};
                     sub_phase <= '0;
                     if (lane_feed_idx != (NUM_LANES - 1)) begin
@@ -816,6 +950,10 @@ module top_mc_option_pricer #(
                 if (core_timeout)
                     state <= ST_DONE;
                 else if (sub_phase == 0 && util_div_rout) begin
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][FINAL] key=sum_pv value64=0x%016h signed=%0d",
+                             sum_pv, $signed(sum_pv));
+`endif
                     util_div_num <= sum_pv[W-1:0];
                     util_div_den <= $signed({16'd0, lat_N}) <<< QF;
                     util_div_vin <= 1'b1;
@@ -823,6 +961,10 @@ module top_mc_option_pricer #(
                 end
                 else if (sub_phase == 1 && util_div_vout) begin
                     result_price <= util_div_result;
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][FINAL] key=price value=0x%08h signed=%0d",
+                             util_div_result, $signed(util_div_result));
+`endif
                     sub_phase     <= '0;
                     state        <= ST_DONE;
                 end

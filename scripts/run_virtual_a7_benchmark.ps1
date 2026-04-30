@@ -61,7 +61,7 @@ $K = [double]$kv["K"]
 $rf = [double]$kv["r"]
 $sig = [double]$kv["sigma"]
 $Tt = [double]$kv["T"]
-$opt = 0
+$opt = 1
 if ($kv.ContainsKey("option_type")) { $opt = [int]$kv["option_type"] }
 
 if ($NumLanes -lt 1) { throw "NumLanes must be >= 1" }

@@ -183,7 +183,7 @@ module tb_top_option_pricer_uart_core #(
             v_r     = 32'h0000_0CCD; // ~0.05
             v_sig   = 32'h0000_3333; // ~0.2
             v_t     = 32'h0001_0000; // 1.0
-            v_opt   = 32'd0;         // 0=CALL
+            v_opt   = 32'd1;         // 1=PUT by default: exercises the American early-exercise path
 
             // xsim warns if $value$plusargs is used as a task; assign to an int sink.
             _pu = $value$plusargs("paths=%d", v_paths);
@@ -247,7 +247,7 @@ module tb_top_option_pricer_uart_core #(
             end
 
             if (!EXPECT_TIMEOUT && result_words[1] != 32'hDEAD0001) begin
-                // Q16.16 sanity: a call option with S0=K=100 should price in [0.1, 50.0]
+                // Q16.16 sanity: an ATM vanilla option with S0=K=100 should price in [0.1, 50.0]
                 // i.e. raw value in [0x0000_1999, 0x0032_0000]
                 if ($signed(result_words[1]) <= 0 || $signed(result_words[1]) > 32'sh0032_0000) begin
                     $display("Batch %0d price out of plausible range: 0x%08h (Q16.16 = %0d.%0d)",

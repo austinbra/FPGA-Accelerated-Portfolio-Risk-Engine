@@ -72,6 +72,10 @@ module accumulator #(
     logic [WIDTH-1:0]               align_pop  [0:1];
     logic                           q_full;
     logic                           q_empty;
+    logic [WIDTH-1:0]               tail_align_push [0:3];
+    logic [WIDTH-1:0]               tail_align_pop  [0:3];
+    logic                           tail_q_full;
+    logic                           tail_q_empty;
 
     // Math datapath
     logic                           v_x2;
@@ -81,10 +85,12 @@ module accumulator #(
     logic signed [WIDTH-1:0]        x2y;
     logic signed [WIDTH-1:0]        x3;
     logic signed [WIDTH-1:0]        x4;
-    logic signed [WIDTH-1:0]        x2_reg;
-    logic signed [WIDTH-1:0]        xy_reg;
     wire  signed [WIDTH-1:0]        x_aligned = align_pop[0];
     wire  signed [WIDTH-1:0]        y_aligned = align_pop[1];
+    wire  signed [WIDTH-1:0]        x_acc     = tail_align_pop[0];
+    wire  signed [WIDTH-1:0]        y_acc     = tail_align_pop[1];
+    wire  signed [WIDTH-1:0]        x2_acc    = tail_align_pop[2];
+    wire  signed [WIDTH-1:0]        xy_acc    = tail_align_pop[3];
 
     // Solver I/F
     logic                      start_solver;
@@ -194,17 +200,11 @@ module accumulator #(
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             cnt_launch <= '0;
-            x2_reg     <= '0;
-            xy_reg     <= '0;
         end else begin
             if (batch_clear) begin
                 cnt_launch <= '0;
             end else if (fire_head) begin
                 cnt_launch <= cnt_launch + 1;
-            end
-            if (v_x2) begin
-                x2_reg <= x2;
-                xy_reg <= xy;
             end
         end
     end
@@ -223,6 +223,25 @@ module accumulator #(
         .empty     (q_empty)
     );
 
+    // Align first-order/head results with the later tail multiplier outputs.
+    // The tail multipliers sample x2 directly on v_x2; using a registered x2
+    // here would lag x^3/x^4/x^2y by one sample.
+    assign tail_align_push[0] = x_aligned;
+    assign tail_align_push[1] = y_aligned;
+    assign tail_align_push[2] = x2;
+    assign tail_align_push[3] = xy;
+
+    event_align_fifo_arr #(.N(4), .DW(WIDTH), .DEPTH(ALIGN_DEPTH)) u_tail_align (
+        .clk       (clk),
+        .rst_n     (rst_n),
+        .push_en   (v_x2),
+        .pop_en    (v_acc),
+        .push_data (tail_align_push),
+        .pop_data  (tail_align_pop),
+        .full      (tail_q_full),
+        .empty     (tail_q_empty)
+    );
+
     // ----------------------------------------------------------------------------
     // Tail multipliers (drain unconditionally)
     // ----------------------------------------------------------------------------
@@ -233,7 +252,7 @@ module accumulator #(
         .ready_out (mul_x2_y_ready),
         .ready_in  (1'b1),
         .valid_out (v_acc),
-        .a         (x2_reg),
+        .a         (x2),
         .b         (y_aligned),
         .result    (x2y)
     );
@@ -245,7 +264,7 @@ module accumulator #(
         .ready_out (mul_x2_x_ready),
         .ready_in  (1'b1),
         .valid_out (/*unused*/),
-        .a         (x2_reg),
+        .a         (x2),
         .b         (x_aligned),
         .result    (x3)
     );
@@ -257,8 +276,8 @@ module accumulator #(
         .ready_out (mul_x2_x2_ready),
         .ready_in  (1'b1),
         .valid_out (/*unused*/),
-        .a         (x2_reg),
-        .b         (x2_reg),
+        .a         (x2),
+        .b         (x2),
         .result    (x4)
     );
 
@@ -278,12 +297,12 @@ module accumulator #(
             cnt_done <= '0;
         end else if (v_acc) begin
             sum1     <= sum1   + (acc_t'(1) <<< QFRAC);
-            sumx     <= sumx   + extended(x_aligned);
-            sumx2    <= sumx2  + extended(x2_reg);
+            sumx     <= sumx   + extended(x_acc);
+            sumx2    <= sumx2  + extended(x2_acc);
             sumx3    <= sumx3  + extended(x3);
             sumx4    <= sumx4  + extended(x4);
-            sumy     <= sumy   + extended(y_aligned);
-            sumxy    <= sumxy  + extended(xy_reg);
+            sumy     <= sumy   + extended(y_acc);
+            sumxy    <= sumxy  + extended(xy_acc);
             sumx2y   <= sumx2y + extended(x2y);
             cnt_done <= cnt_done + 1;
         end
@@ -337,6 +356,28 @@ module accumulator #(
                         mat_flat[11] <= saturate(sumx2y);
 
                         if (solver_ready) begin
+`ifdef TOP_NUM_DEBUG
+                            $display("[NUM][ACC-SUM] key=sum1 value64=0x%016h signed=%0d", sum1, $signed(sum1));
+                            $display("[NUM][ACC-SUM] key=sumx value64=0x%016h signed=%0d", sumx, $signed(sumx));
+                            $display("[NUM][ACC-SUM] key=sumx2 value64=0x%016h signed=%0d", sumx2, $signed(sumx2));
+                            $display("[NUM][ACC-SUM] key=sumx3 value64=0x%016h signed=%0d", sumx3, $signed(sumx3));
+                            $display("[NUM][ACC-SUM] key=sumx4 value64=0x%016h signed=%0d", sumx4, $signed(sumx4));
+                            $display("[NUM][ACC-SUM] key=sumy value64=0x%016h signed=%0d", sumy, $signed(sumy));
+                            $display("[NUM][ACC-SUM] key=sumxy value64=0x%016h signed=%0d", sumxy, $signed(sumxy));
+                            $display("[NUM][ACC-SUM] key=sumx2y value64=0x%016h signed=%0d", sumx2y, $signed(sumx2y));
+                            $display("[NUM][ACC-MAT] key=mat00 value=0x%08h signed=%0d", saturate(sum1), $signed(saturate(sum1)));
+                            $display("[NUM][ACC-MAT] key=mat01 value=0x%08h signed=%0d", saturate(sumx), $signed(saturate(sumx)));
+                            $display("[NUM][ACC-MAT] key=mat02 value=0x%08h signed=%0d", saturate(sumx2), $signed(saturate(sumx2)));
+                            $display("[NUM][ACC-MAT] key=mat03 value=0x%08h signed=%0d", saturate(sumy), $signed(saturate(sumy)));
+                            $display("[NUM][ACC-MAT] key=mat10 value=0x%08h signed=%0d", saturate(sumx), $signed(saturate(sumx)));
+                            $display("[NUM][ACC-MAT] key=mat11 value=0x%08h signed=%0d", saturate(sumx2), $signed(saturate(sumx2)));
+                            $display("[NUM][ACC-MAT] key=mat12 value=0x%08h signed=%0d", saturate(sumx3), $signed(saturate(sumx3)));
+                            $display("[NUM][ACC-MAT] key=mat13 value=0x%08h signed=%0d", saturate(sumxy), $signed(saturate(sumxy)));
+                            $display("[NUM][ACC-MAT] key=mat20 value=0x%08h signed=%0d", saturate(sumx2), $signed(saturate(sumx2)));
+                            $display("[NUM][ACC-MAT] key=mat21 value=0x%08h signed=%0d", saturate(sumx3), $signed(saturate(sumx3)));
+                            $display("[NUM][ACC-MAT] key=mat22 value=0x%08h signed=%0d", saturate(sumx4), $signed(saturate(sumx4)));
+                            $display("[NUM][ACC-MAT] key=mat23 value=0x%08h signed=%0d", saturate(sumx2y), $signed(saturate(sumx2y)));
+`endif
                             start_solver <= 1'b1;
                             state        <= WAIT;
                         end
@@ -405,6 +446,9 @@ module accumulator #(
 
         assert (!(q_empty && v_x2))
             else $error("Accumulator: x/y align FIFO underflow");
+
+        assert (!(tail_q_empty && v_acc))
+            else $error("Accumulator: tail align FIFO underflow");
     end
 
 endmodule
