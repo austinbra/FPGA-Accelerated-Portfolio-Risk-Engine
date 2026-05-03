@@ -4,9 +4,9 @@ Last updated: 2026-05-03
 
 ## Current State
 
-The thesis kernel is complete.
+This fork has a complete FPGA QMC-LSM option pricing kernel and a planned portfolio-risk product layer.
 
-The repository now contains a hardware-ready FPGA QMC-LSM American option pricing kernel with:
+Implemented foundation:
 
 - bit-exact C++/RTL parity for the default single-date engine,
 - compile-time multi-exercise RTL mode,
@@ -17,9 +17,18 @@ The repository now contains a hardware-ready FPGA QMC-LSM American option pricin
 - UART host flow,
 - 100 MHz routed bitstreams for Arty A7-100T and Arty S7-50.
 
-Root docs should be read as the completed public artifact. `.user` and `.cursor` should now guide the next phase: turning the kernel into a portfolio/scenario/risk product.
+Not implemented yet:
 
-## Final Thesis Result
+- portfolio CSV input/output,
+- scenario sweep runner,
+- Greeks bump/revalue engine,
+- path-dependent payoff mode,
+- basket payoff and correlation input,
+- risk report generation.
+
+Root docs should be read as the fork's product-facing artifact. `.user` and `.ai` guide the next phase.
+
+## Kernel Foundation Result
 
 | Target | Part | Clock | Timing | Utilization summary | Bitstream |
 |--------|------|-------|--------|---------------------|-----------|
@@ -67,16 +76,21 @@ At 100 MHz, the core-only multi-date PUT times above are 4.612 ms, 18.432 ms, an
 | Diagnosis script | Complete |
 | Accuracy study script | Complete |
 | Vivado A7/S7 build flows | Complete |
+| Portfolio CSV runner | Planned |
+| Scenario sweep runner | Planned |
+| Greeks bump/revalue engine | Planned |
+| Asian payoff | Planned |
+| Basket/correlation support | Planned |
 
 ## Design Decisions To Preserve
 
-- Keep root documentation public and completed.
-- Keep `.user/FUTURE_PROJECT.md` as the starting point for the fork or next branch.
-- Default single-date behavior remains available for historical parity, but the thesis result is multi-date.
+- Treat the existing kernel as the stable foundation.
+- Keep `.user/FUTURE_PROJECT.md` and `.user/ROADMAP.md` as the product scope source of truth.
+- Default single-date behavior remains available for historical parity, but the product foundation is multi-date.
 - Multi-date v1 is intentionally `NUM_LANES=1`.
-- Do not add path batching just because it was once an original idea. Current BRAM use is low; batching should be driven by portfolio scheduling, larger `M`, larger path counts, or a smaller board target.
+- Do not add path batching just because it was once an original idea. Current BRAM use is low; batching should be driven by portfolio scheduling, larger `M`, larger path counts, UART throughput, or a smaller board target.
 - Do not add variance reduction by default. Add it only if it reduces path count enough to matter for portfolio/scenario latency.
-- Do not call the next product "sentiment-driven options pricer." The stronger identity is a hardware-accelerated scenario pricing and Greeks engine for complex derivatives.
+- Do not call the product "sentiment-driven options pricer." The stronger identity is a hardware-accelerated scenario pricing and Greeks engine for complex derivatives.
 
 ## Main Problems Solved
 
@@ -102,7 +116,7 @@ The S7-50 version fits after divider/resource discipline and cashflow-only stora
 
 ## Validation Commands
 
-Use these as the final thesis sanity set:
+Use these as the kernel sanity set:
 
 ```powershell
 python -m py_compile scripts\validate_numerical.py scripts\diagnose_numerical.py scripts\accuracy_study.py scripts\financial_reference.py scripts\vivado_build_runner.py
@@ -117,9 +131,7 @@ python scripts\diagnose_numerical.py --paths 64 --steps 12 --option-type 1 --exe
 
 ## What Comes Next
 
-The next implementation is not more vanilla-option kernel polish unless a concrete failure appears.
-
-Recommended fork direction:
+Recommended implementation order:
 
 1. Portfolio CSV input/output and contract IDs.
 2. Batch portfolio pricing with aggregation.
@@ -129,5 +141,3 @@ Recommended fork direction:
 6. Basket payoff and correlation input.
 7. Vol/correlation estimator and regime-weighted scenarios.
 8. Event/sentiment features only if they improve out-of-sample vol, correlation, or jump-risk forecasting.
-
-The next repo or branch should make it obvious that it starts from this completed kernel.

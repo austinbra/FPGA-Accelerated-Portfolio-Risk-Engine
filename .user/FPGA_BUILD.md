@@ -1,8 +1,8 @@
 # FPGA Build Notes
 
-This file records how to reproduce the final thesis bitstreams and how to interpret the reports.
+This file records how to reproduce the inherited kernel bitstreams and how to interpret the reports. The product fork should keep these flows stable while portfolio, scenario, and Greeks tooling grows around the kernel.
 
-## A7-100T Multi-Date Thesis Build
+## A7-100T Multi-Date Kernel Build
 
 Command:
 
@@ -33,7 +33,7 @@ Measured post-route resources:
 - DSP48E1: `80 / 240 = 33.33%`
 - RAMB36: `16 / 135 = 11.85%`
 
-## S7-50 Multi-Date Thesis Build
+## S7-50 Multi-Date Kernel Build
 
 Command:
 
@@ -83,6 +83,17 @@ Files:
 - `src/steps/GBM.sv`
 - `src/top/top_option_pricer_multi.sv`
 
+## Product-Layer Rule
+
+Do not change RTL first. Build portfolio, scenario, and Greeks flows against the current C++ mirror and UART path, then profile:
+
+- CPU mirror runtime,
+- FPGA `core_cycles / fclk`,
+- UART round-trip time,
+- batch scheduling overhead.
+
+Only change RTL when those measurements show a concrete bottleneck.
+
 ## Single-Date Build
 
 The historical single-date build remains available:
@@ -91,7 +102,7 @@ The historical single-date build remains available:
 .\scripts\run_vivado_build_arty_a7.ps1 -TimeoutSeconds 14400
 ```
 
-The completed thesis claim uses the multi-date 100 MHz builds above.
+The product fork should use the multi-date build for the current American PUT foundation.
 
 ## Program A7 Hardware
 
@@ -150,7 +161,7 @@ The S7 flow uses the same hardened approach for multi-date builds.
 
 ## Board Resource Interpretation
 
-S7-50 is the tighter thesis target:
+S7-50 is the tighter foundation target:
 
 - LUT: 71.02%, close enough to be meaningful but not over budget.
 - DSP: 66.67%, also meaningful.

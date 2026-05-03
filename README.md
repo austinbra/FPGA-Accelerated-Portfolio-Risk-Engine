@@ -1,12 +1,58 @@
-# FPGA-Accelerated QMC-LSM American Option Pricer
+# FPGA QMC-LSM Portfolio Risk Engine
 
-This repository is the completed thesis version of a hardware-accelerated American option pricing kernel. It implements Longstaff-Schwartz Monte Carlo (LSM) with a Sobol quasi-Monte Carlo stream, fixed-point arithmetic, UART control, C++/RTL parity tooling, financial accuracy studies, and Vivado implementation flows for Digilent Arty A7-100T and Arty S7-50 boards.
+This fork turns the original FPGA-accelerated American option pricer into a broader hardware-accelerated portfolio risk project.
 
-The project ends here as a pricing kernel. The next product story starts in [`.user/FUTURE_PROJECT.md`](.user/FUTURE_PROJECT.md): portfolio CSVs, scenario sweeps, Greeks, path-dependent payoffs, and risk reporting.
+The starting point is valuable: a completed QMC-LSM pricing kernel with bit-exact C++/RTL parity, UART control, Sobol quasi-Monte Carlo paths, fixed-point Longstaff-Schwartz regression, and 100 MHz Vivado builds for Arty A7-100T and Arty S7-50. This fork uses that kernel where it is strongest: repeated pricing, scenario sweeps, Greeks, and eventually path-dependent or multi-asset derivatives where tree methods become less attractive.
 
-## Thesis Result
+The new project goal is:
 
-The final multi-exercise-date RTL build is timing-clean at 100 MHz on both supported thesis targets.
+```text
+Portfolio and scenario inputs
+    -> host-side contract and bump scheduler
+    -> FPGA QMC-LSM pricing kernel
+    -> prices, Greeks, scenario PnL, and aggregated risk reports
+```
+
+## Why This Fork Exists
+
+The original project proved the hardware kernel. This fork asks where that kernel is useful.
+
+A single vanilla American option is not the strongest product story because a binomial tree can already handle it well. The stronger use case is repeated valuation:
+
+- many contracts in a portfolio,
+- many market scenarios,
+- bumped revaluations for Greeks,
+- early-exercise products,
+- path-dependent payoffs such as Asian options,
+- multi-asset payoffs such as baskets with correlation.
+
+The FPGA kernel gives the project a deterministic, measurable acceleration target. The host software around it turns that target into a useful risk workflow.
+
+## Current Foundation
+
+The inherited kernel is complete and should remain the regression baseline while the product layer grows.
+
+| Capability | Status |
+|------------|--------|
+| Sobol QMC path stream from `src/gen/direction.mem` | Complete |
+| Q16.16 fixed-point GBM path generation | Complete |
+| Single-date compatibility mode | Complete |
+| Multi-date LSM PUT backward induction | Complete |
+| No-dividend CALL terminal fast path while `q=0` | Complete |
+| Bit-exact C++/RTL mirror | Complete |
+| UART parameter/result packet | Complete |
+| Financial accuracy study versus American CRR reference | Complete |
+| Regression health metrics | Complete |
+| A7-100T and S7-50 100 MHz routed builds | Complete |
+| Portfolio CSV runner | Planned |
+| Scenario sweep runner | Planned |
+| Greeks bump/revalue engine | Planned |
+| Asian payoff | Planned |
+| Basket/correlation support | Planned |
+
+## FPGA Kernel Result
+
+The multi-exercise-date RTL build is timing-clean at 100 MHz on both supported thesis boards.
 
 | Target | Part | Clock | WNS | TNS | Failing endpoints | Bitstream |
 |--------|------|-------|-----|-----|-------------------|-----------|
@@ -20,48 +66,20 @@ Post-route utilization:
 | Arty A7-100T | 23,167 / 63,400 = 36.54% | 27,873 / 126,800 = 21.98% | 80 / 240 = 33.33% | 16 / 135 = 11.85% |
 | Arty S7-50 | 23,154 / 32,600 = 71.02% | 27,873 / 65,200 = 42.75% | 80 / 120 = 66.67% | 16 / 75 = 21.33% |
 
-Timing was measured from Vivado post-route `report_timing_summary` after `route_design`. Resource use was measured from Vivado post-route `report_utilization`. FPGA compute time is measured from the RTL `core_cycles` counter divided by the implemented clock frequency. UART round-trip is reported separately by the host scripts because serial I/O is not the pricing-core timer.
+FPGA compute time is measured from the RTL `core_cycles` counter divided by the implemented clock frequency. UART round-trip time is tracked separately by the host scripts because serial transfer and host scheduling are not pricing-core work.
 
-## What It Prices
+## Pricing Contract
 
-The core prices vanilla American-style options under geometric Brownian motion:
+The current kernel prices vanilla American-style options under geometric Brownian motion:
 
-- PUT: full multi-exercise Longstaff-Schwartz backward induction at simulated dates `1..M-1`.
-- CALL: no-dividend fast path while `q=0`; non-dividend American calls are not exercised early in the Black-Scholes/GBM model.
-- Default numerical format: signed Q16.16.
-- Default production random stream: Sobol QMC from `src/gen/direction.mem`, starting at Sobol index 1.
+- PUT: multi-exercise Longstaff-Schwartz backward induction at simulated dates `1..M-1`.
+- CALL: no-dividend terminal fast path while `q=0`.
+- Numeric format: signed Q16.16.
+- Production random stream: Sobol QMC from `src/gen/direction.mem`, starting at Sobol index 1.
+- Regression basis for PUT continuation: `[1, S/K - 1, (S/K - 1)^2]`.
+- Regression fallback: singular or unstable solves fall back to mean continuation; beta coefficients above the Q16.16 cap of 4096.0 also trigger fallback.
 
-The design is useful as a hardware kernel because LSM scales to early-exercise, path-dependent, and eventually multi-asset derivatives where binomial trees and PDE grids become less attractive. This thesis version proves the kernel, the fixed-point mirror, the timing closure, and the validation approach.
-
-## Architecture
-
-```text
-UART parameters
-    -> init constants
-    -> Sobol QMC
-    -> inverse normal CDF
-    -> GBM path generation
-    -> terminal cashflow RAM
-    -> backward LSM regression and decisions
-    -> final discounted average
-    -> UART result packet
-```
-
-Important implementation choices:
-
-- **Sobol instead of pseudo-random MT:** deterministic QMC is repeatable, low state, FPGA-friendly, and useful for convergence studies.
-- **Skip Sobol index 0:** Sobol index 0 produces a boundary value. Production starts at index 1.
-- **Open-interval guard:** after RTL truncates `sobol_out[31:16]`, `u_q16=0` is remapped to `1`. This prevents inverse-CDF from seeing exactly zero, which would drive `ln(0)` toward infinity and can poison divisions or square-root inputs.
-- **Fixed-point Q16.16:** enough precision for the thesis kernel while keeping multipliers, ROMs, and dividers tractable.
-- **C++ FPGA-style mirror:** the software parity oracle uses the same Sobol direction file, LUTs, fixed-point transforms, regression policy, and final averaging as RTL.
-- **Cashflow BRAM, not full path storage:** multi-date RTL stores one Q16.16 cashflow per path and regenerates deterministic path prefixes for each exercise step. This avoids storing `S[path][step]`, keeps BRAM modest, and preserves exact replay.
-- **Centered regression basis:** PUT continuation uses `[1, S/K - 1, (S/K - 1)^2]`, which improves conditioning around the strike.
-- **Regression fallback:** singular or unstable regression falls back to mean continuation; beta coefficients above the Q16.16 cap of 4096.0 also trigger fallback.
-- **True multiplier pipeline:** `fxMul` registers the 64-bit raw product before Q-format rounding/truncation. This is the fix that enabled 100 MHz.
-
-## Validation Snapshot
-
-Price parity is measured by comparing the RTL UART simulation result against `baseline/cpp_fixed/fixed_baseline --fpga-style --exercise-mode ...` using identical Q16.16 parameters, Sobol stream, and LUTs.
+Parity snapshot:
 
 | Case | C++ Q16.16 | RTL Q16.16 | Delta | Core cycles |
 |------|------------|------------|-------|-------------|
@@ -71,35 +89,47 @@ Price parity is measured by comparing the RTL UART simulation result against `ba
 | Multi-date PUT, N=1024, M=12 | 428,757 | 428,757 | 0 LSB | 7,370,906 |
 | Multi-date CALL, N=64, M=12 | 482,546 | 482,546 | 0 LSB | 37,726 |
 
-At 100 MHz, the measured core-only times are:
+At 100 MHz, the N=1024, M=12 multi-date PUT case is `7,370,906 / 100e6 = 73.70906 ms` of core compute.
 
-- N=64, M=12 multi-date PUT: `461245 / 100e6 = 4.61245 ms`.
-- N=256, M=12 multi-date PUT: `1843158 / 100e6 = 18.43158 ms`.
-- N=1024, M=12 multi-date PUT: `7370906 / 100e6 = 73.70906 ms`.
+## Product Architecture
 
-Larger simulation spot checks were also used during bring-up; the main post-route thesis timing/resource claims are the A7-100T and S7-50 100 MHz reports above.
+The fork should add host-side product infrastructure before changing RTL.
 
-## Accuracy Measurement
+```text
+examples/portfolio.csv
+    -> scripts/portfolio_price.py
+    -> contract normalization and validation
+    -> target selector: cpu | fpga | both
+    -> existing C++ mirror or UART FPGA path
+    -> position prices and portfolio value
 
-Hardware parity and financial accuracy are separate questions.
+examples/scenarios.csv
+    -> scripts/scenario_sweep.py
+    -> market bumps and named shocks
+    -> repeated pricing jobs
+    -> scenario PnL report
 
-- **Parity:** Does RTL equal the bit-exact C++ mirror? Measured in raw Q16.16 LSBs.
-- **Financial accuracy:** How far is the method from a high-precision reference? Measured in basis points of spot and basis points of reference price.
+Greek bump engine
+    -> delta, gamma, vega, rho, theta bumps
+    -> repeated pricing jobs
+    -> position and portfolio exposures
+```
 
-The financial reference is implemented in `scripts/financial_reference.py`:
+Defer RTL batching, variance reduction, Brownian bridge, multi-lane multi-date, and higher fmax work until measurements from the product layer show a real bottleneck.
 
-- Cox-Ross-Rubinstein American binomial tree for PUT/CALL with `q=0`.
-- Black-Scholes European formula for sanity checks.
-- Single-exercise tree to isolate the old single-date modeling gap.
+## Roadmap
 
-`scripts/accuracy_study.py` attributes error into:
+1. Add portfolio CSV schema and examples.
+2. Add `scripts/portfolio_price.py` using the existing C++ mirror first.
+3. Add `--target fpga` and `--target both` through `src/uart_host.py`.
+4. Add scenario sweep input and scenario PnL output.
+5. Add bump/revalue Greeks.
+6. Add Markdown and CSV risk reports.
+7. Add Asian payoff support.
+8. Add basket payoff and correlation input.
+9. Add market regime or event features only if they improve measured risk forecasts.
 
-- single-exercise modeling error,
-- Sobol/LSM estimator and regression error,
-- fixed-point hardware error,
-- total error versus the American CRR reference.
-
-The key result is that multi-date LSM materially improves PUT accuracy while fixed-point error remains controlled at useful path counts. The current kernel is therefore limited more by estimator/model choices than by RTL arithmetic.
+The internal planning docs live in [`.user`](.user/README.md). The AI/session memory lives in [`.ai`](.ai/README.md).
 
 ## Build And Run
 
@@ -126,7 +156,7 @@ Run the bit-exact multi-date software mirror:
 .\scripts\run_tb_top_uart_safe.ps1 -MultiExercise -TestPlusargs "paths=64,steps=12,S0=6553600,K=6553600,r=3277,sigma=13107,T=65536,opt=1"
 ```
 
-### Run numerical parity gates
+### Run parity gates
 
 ```powershell
 python scripts\validate_numerical.py --exercise-mode single --paths 64 --steps 12 --option-type 1 --build-cpu
@@ -140,30 +170,14 @@ python scripts\diagnose_numerical.py --paths 64 --steps 12 --option-type 1 --exe
 ```powershell
 python scripts\accuracy_study.py --preset smoke --build-cpu --attribution
 python scripts\accuracy_study.py --preset default --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_default_health
-python scripts\accuracy_study.py --preset smoke --paths-list 1024,4096,8192 --steps-list 12,20 --moneyness-list 0.6,0.8,1.0,1.2,1.4 --sigma-list 0.05,0.2,0.4,0.6 --option-types put,call --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_stress_health
 ```
-
-Outputs:
-
-- `accuracy_results.csv`
-- `accuracy_summary.md`
-- `health/health_rows.csv` when `--health-metrics` is enabled.
 
 ### Build Vivado bitstreams
 
-Arty A7-100T, multi-date, 100 MHz:
-
 ```powershell
 .\scripts\run_vivado_build_arty_a7.ps1 -MultiExercise -ClockPeriodNs 10 -TimeoutSeconds 21600
-```
-
-Arty S7-50, multi-date, 100 MHz:
-
-```powershell
 .\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -ClockPeriodNs 10 -TimeoutSeconds 21600
 ```
-
-The build scripts generate timing and utilization reports next to each bitstream.
 
 ### Program and benchmark hardware
 
@@ -172,79 +186,35 @@ The build scripts generate timing and utilization reports next to each bitstream
 python src\uart_host.py --mode benchmark --target fpga --param-file baseline\cpp_fixed\params_example.txt --port COM4 --fpga-fclk-hz 100000000
 ```
 
-Use `--target both` to run the C++ mirror and FPGA UART path together. The host prints CPU wall time, FPGA core time from `core_cycles / fpga_fclk_hz`, UART round-trip time, price deltas, and speedup.
-
-### Virtual hardware timing
-
-When a board is not connected, the virtual flow runs the same UART compute testbench and scales the DUT cycle counter by the implemented clock.
-
-```powershell
-.\scripts\run_virtual_a7_benchmark.ps1 -ParamFile baseline\cpp_fixed\params_example.txt -NumLanes 1 -FclkHz 100000000
-```
-
-This is cycle-accurate for the RTL core and post-route clock target, but it is not a USB-UART silicon measurement.
-
-## UART Protocol
-
-The host sends one batch of Q16.16 parameters:
-
-```text
-paths, steps, S0, K, r, sigma, T, option_type
-```
-
-`option_type=0` means CALL and `option_type=1` means PUT.
-
-The FPGA returns a result packet with:
-
-```text
-marker, price_q16, core_cycles_low, core_cycles_high, status_flags
-```
-
-`core_cycles` measures pricing-core runtime. UART wall time includes serial transfer, host scheduling, and parsing, so it is tracked separately.
+Use `--target both` to run the C++ mirror and FPGA UART path together.
 
 ## Repository Map
 
 ```text
-src/                      SystemVerilog core
+src/                      SystemVerilog core and UART host path
 src/math/                 Q16.16 multiply/divide/exp/log/sqrt/inverse-CDF support
 src/steps/                Sobol, GBM, accumulator, regression, LSM decision
 src/top/                  single-date and multi-date top-level orchestration
 fpga/                     board wrappers
 constraints/              board XDC constraints
-scripts/                  build, validation, diagnosis, and study scripts
+scripts/                  build, validation, diagnosis, accuracy, and future product scripts
 baseline/cpp_fixed/       bit-exact fixed-point C++ mirror
 tb/                       RTL testbenches
-.user/                    private project memory and next-product planning
-.cursor/                  AI/Cursor handoff rules
+.user/                    project memory, roadmap, validation, and product scope
+.ai/                      AI/session memory and operating rules
 ```
 
-## Completed Scope
+## Documentation Map
 
-Completed in this repository:
+- [`PROJECT_REPORT.md`](PROJECT_REPORT.md): longer explanation of the fork scope and inherited kernel.
+- [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md): current implementation state.
+- [`.user/ROADMAP.md`](.user/ROADMAP.md): product roadmap.
+- [`.user/FUTURE_PROJECT.md`](.user/FUTURE_PROJECT.md): larger product story and naming guidance.
+- [`.user/VALIDATION.md`](.user/VALIDATION.md): gates to keep the kernel trustworthy.
+- [`.user/ACCURACY.md`](.user/ACCURACY.md): financial accuracy methodology.
 
-- bit-exact C++/RTL pricing mirror,
-- Sobol QMC stream with boundary guard,
-- single-date and multi-date LSM,
-- PUT/CALL handling for `q=0`,
-- stage-by-stage numerical diagnosis,
-- regression health metrics,
-- American CRR financial accuracy study,
-- true pipelined fixed-point multiplier,
-- 100 MHz Vivado implementation on A7-100T and S7-50,
-- UART benchmark path.
+## Project Boundary
 
-Out of scope for this completed thesis kernel:
+The inherited option pricer is a foundation, not the final product of this fork. Preserve its validation gates, then build the portfolio risk layer around it.
 
-- dividend yield input,
-- Asian or basket payoff,
-- correlation matrix input,
-- portfolio CSV mode,
-- Greeks and scenario PnL,
-- market-data regime model,
-- sentiment/event ingestion.
-
-Those are the next product phase, documented in [`.user/FUTURE_PROJECT.md`](.user/FUTURE_PROJECT.md).
-
-## Full Project Report
-
-For the longer explanation of the algorithm, decisions, debugging path, accuracy methodology, and lessons learned, read [`PROJECT_REPORT.md`](PROJECT_REPORT.md).
+Do not market the project as a sentiment-driven options pricer. Sentiment or event data can be added later only if it measurably improves volatility, correlation, jump-risk, or scenario selection.

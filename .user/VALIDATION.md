@@ -1,8 +1,10 @@
 # Validation
 
-This file is the internal verification playbook. The public summary lives in root `README.md` and `PROJECT_REPORT.md`.
+This file is the internal verification playbook for the fork. The public summary lives in root `README.md` and `PROJECT_REPORT.md`.
 
-## Final Thesis Gates
+The product layer can change, but the inherited FPGA pricing kernel must remain trustworthy.
+
+## Kernel Gates
 
 Run from the repository root.
 
@@ -37,6 +39,28 @@ Known measured values:
 | Multi-date PUT N=256/M=12 | 426,642 | `0x00068292` | 1,843,158 |
 | Multi-date PUT N=1024/M=12 | 428,757 | `0x00068AD5` | 7,370,906 |
 | Multi-date CALL N=64/M=12 | 482,546 | `0x00075CF2` | 37,726 |
+
+## Product Gates
+
+For portfolio, scenario, and Greeks work, add focused tests as files are created.
+
+Minimum expectations:
+
+- CSV parsing rejects malformed contracts with clear row-level errors.
+- `--target cpu` works without a board.
+- `--target both` reports CPU/FPGA price deltas when hardware is available.
+- Scenario reports preserve contract IDs and scenario names.
+- Greek reports record bump sizes and base/bumped prices.
+- Product scripts do not change the kernel parity contract unless explicitly versioned.
+
+Likely first commands:
+
+```powershell
+python -m py_compile scripts\portfolio_price.py scripts\scenario_sweep.py
+python scripts\portfolio_price.py --portfolio examples\portfolio.csv --output-dir .tmp\portfolio_smoke --target cpu
+python scripts\scenario_sweep.py --portfolio examples\portfolio.csv --scenarios examples\scenarios.csv --output-dir .tmp\scenario_smoke --target cpu
+git diff --check
+```
 
 ## Vivado Gates
 
@@ -160,10 +184,10 @@ The host reports:
 
 ## Acceptance Criteria For Future Changes
 
-Future fork work should keep this kernel stable:
+Future product work should keep this kernel stable:
 
 - C++/RTL parity must remain within 1 Q16.16 LSB unless the algorithm contract intentionally changes.
-- A7-100T and S7-50 100 MHz builds should continue to meet timing.
+- A7-100T and S7-50 100 MHz builds should continue to meet timing for RTL changes.
 - No change should reintroduce `u_q16=0` into inverse-CDF.
 - CALL early exercise should remain suppressed until a dividend-yield input exists.
 - Regression health metrics should remain bounded before any RTL expansion.

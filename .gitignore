@@ -1,7 +1,6 @@
 # -------------------------
 # 1) Build artifacts
 # -------------------------
-# If  put all your compiled binaries in a folder like /build or /bin:
 build/
 __pycache__/
 bin/
@@ -17,14 +16,11 @@ obj/
 # -------------------------
 # 2) CMake / Makefile files
 # -------------------------
-# If  use CMake, ignore its generated files:
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
 build/
-
-# if using plain Makefile and generate .a/.so:
 *.a
 *.so
 
@@ -35,7 +31,6 @@ build/
 *.vcxproj*
 *.sln
 *.suo
-# Do not use bare *.user here: it matches a directory named ".user" (* can be empty).
 *.vcxproj.user
 
 # VS Code
@@ -52,18 +47,13 @@ build/
 *.xcuserstate
 
 # -------------------------
-# 4) OS‐specific files
+# 4) OS-specific files
 # -------------------------
-# macOS
 .DS_Store
-
-# Windows
 Thumbs.db
 ehthumbs.db
 Icon?
 Desktop.ini
-
-# Linux temporary thumbnails
 *~
 
 # -------------------------
@@ -72,13 +62,11 @@ Desktop.ini
 *.log
 *.tmp
 *.temp
-
-# Any large CSV/JSON/Matlab files you don’t want in Git – e.g. test data:
 data/*.csv
 data/*.json
 logging/
 
-# Vivado project outputs (non-project batch build under repo)
+# Vivado project outputs
 vivado_build/
 
 # Vivado / XSIM generated artifacts
@@ -109,9 +97,8 @@ tclapp/
 # Obsidian vault (local knowledge base, not version-controlled)
 vault/
 
-# Maintainer-only roadmap (never commit — local backlog / silicon checklist)
-.user/*
-!.user/ACCURACY.md
+# Maintainer-only private roadmap
+.user/ROADMAP_PRIVATE.md
 
 # Optional scratch (never commit secrets or keys)
 local/
@@ -121,9 +108,10 @@ local/
 secrets/
 
 # -------------------------
-# 6) Cursor / local AI workspace ("memory layer")
+# 6) Legacy editor-local AI workspace
 # -------------------------
-# Rules stay local; only the human index is tracked.
+# The active repo-local AI workspace is `.ai/`.
+# Keep old Cursor-created scratch ignored if it reappears.
 .cursor/*
 !.cursor/README.md
 .specstory/

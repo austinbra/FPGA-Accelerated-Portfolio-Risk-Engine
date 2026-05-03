@@ -1,32 +1,54 @@
-# Fixed-Point C++ Baseline
+# Fixed-Point C++ Pricing Mirror
 
-This is the promoted CPU baseline used to compare against the FPGA SystemVerilog implementation.
+This directory contains the promoted CPU mirror for the FPGA pricing kernel. In the forked portfolio-risk project, this executable has two jobs:
 
-## Purpose
+- provide a bit-exact parity oracle for RTL,
+- serve as the first pricing backend for portfolio, scenario, and Greeks tooling before a board is connected.
 
-- Numerical baseline for option price comparisons.
-- CPU timing baseline for throughput/performance comparisons.
-- Reference implementation for algorithm/debug sanity checks.
+## Build
 
-## Build and run (PowerShell + g++)
+From this directory:
 
 ```powershell
 g++ -std=c++17 main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
-./fixed_baseline --paths 10000 --steps 50 --S0 100 --K 100 --r 0.05 --sigma 0.2 --T 1.0 --put
 ```
 
-### RTL mirror inputs
+From the repository root:
 
-The default `--fpga-style` path is a bit-exact parity oracle for the RTL:
-it reads the RTL Sobol `direction.mem`, starts at Sobol index 1, truncates
-`sobol_out[31:16]`, applies the one-LSB lower guard for `u=0`, and mirrors
-the RTL LUT/division/sqrt/inverse-CDF/GBM/regression/final-average math.
-Use `--direction-file <path>` and `--lut-dir <path>` to point at explicit
-generated `.mem` files.
+```powershell
+cd baseline\cpp_fixed
+g++ -std=c++17 main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
+cd ..\..
+```
 
-### File-driven run
+## Run The FPGA-Style Mirror
 
-Input file format (`key=value`, one per line):
+The `--fpga-style` path mirrors the RTL contract:
+
+- reads the RTL Sobol `direction.mem`,
+- starts at Sobol index 1,
+- truncates `sobol_out[31:16]`,
+- applies the one-LSB lower guard for `u=0`,
+- mirrors the RTL LUT/division/sqrt/inverse-CDF/GBM/regression/final-average math.
+
+Example:
+
+```powershell
+.\baseline\cpp_fixed\fixed_baseline.exe --paths 1024 --steps 12 --S0 100 --K 100 --r 0.05 --sigma 0.2 --T 1 --option-type 1 --fpga-style --exercise-mode multi --direction-file src\gen\direction.mem --lut-dir src\gen
+```
+
+Use:
+
+- `--exercise-mode single` for historical single-date compatibility,
+- `--exercise-mode multi` for the current American PUT kernel,
+- `--option-type 0` for CALL,
+- `--option-type 1` for PUT.
+
+No-dividend CALLs use the terminal fast path while `q=0`.
+
+## File-Driven Run
+
+Input file format:
 
 ```text
 paths=10000
@@ -45,19 +67,19 @@ option_type=1
 Run:
 
 ```powershell
-./fixed_baseline --input-file params.txt
+.\fixed_baseline.exe --input-file params.txt --fpga-style --exercise-mode multi
 ```
 
-Example file: `params_example.txt`
+Example file: `params_example.txt`.
 
-`option_type=0` selects a call and `option_type=1` selects a put. The default is
-PUT so the early-exercise path is exercised in demos and validation. The default
-pricing mode is `--fpga-style`, matching the current RTL single-exercise date at
-`M-1`; use `--full-lsm` when you want the full backward-induction CPU model.
-Use `--trace-numerical` for diagnostic-only raw Q16.16 stage tracing.
+## Role In The Fork
 
-## Notes
+The first product scripts should call this mirror before they call hardware. That lets portfolio parsing, scenario expansion, and Greek bump logic be tested without a connected board.
 
-- Sobol QMC is the production stream; pseudo-random and Boost Sobol are not the validation oracle.
-- For FPGA speed comparison, use FPGA core cycle counts (exclude UART transfer time), then compare with CPU runtime from this baseline.
-- Unified benchmark/live runner is `src/uart_host.py` with selectable target: `cpu`, `fpga`, or `both`.
+Planned consumers:
+
+- `scripts/portfolio_price.py`,
+- `scripts/scenario_sweep.py`,
+- future bump/revalue Greek tooling.
+
+For FPGA speed comparisons, use FPGA core cycle counts from `src/uart_host.py` and compare them with CPU wall time from this executable. Keep UART round-trip time separate from pricing-core time.

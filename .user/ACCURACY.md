@@ -1,11 +1,12 @@
 # Financial Accuracy
 
-Hardware parity is not the same as financial accuracy.
+Hardware parity is not the same as financial accuracy, and product usefulness is a third question.
 
-This project uses two separate questions:
+This fork uses three separate gates:
 
 1. **Parity:** does RTL equal the C++ FPGA-style mirror?
-2. **Accuracy:** how far is the FPGA method from a high-precision financial reference?
+2. **Kernel accuracy:** how far is the FPGA method from a high-precision financial reference?
+3. **Product accuracy:** do portfolio scenarios, Greeks, and future payoff extensions preserve traceable assumptions and acceptable error?
 
 Parity is measured in Q16.16 LSBs. Accuracy is measured in basis points.
 
@@ -66,9 +67,9 @@ Per-step rows are written to:
 
 These metrics matter because LSM can fail silently: a final price can look plausible while beta coefficients or continuation estimates are nonsense.
 
-## Final Multi-Date Contract
+## Final Kernel Contract
 
-This is the C++/RTL financial contract at the end of the thesis project:
+This is the C++/RTL financial contract inherited by the product fork:
 
 - PUT exercise dates: every simulated step `1..M-1`.
 - CALL exercise dates: suppressed while `q=0`.
@@ -83,6 +84,23 @@ This is the C++/RTL financial contract at the end of the thesis project:
 - Beta cap fallback: if `max(abs(beta)) > 4096.0`, use mean continuation.
 - Cashflow update: exercise if `immediate >= continuation_estimate`.
 - Final price: average of one-step discounted cashflows.
+
+## Product Accuracy Policy
+
+Portfolio and scenario tooling must make assumptions visible.
+
+For each product report, include when applicable:
+
+- pricing target: `cpu`, `fpga`, or `both`,
+- path count and step count,
+- option type and exercise mode,
+- scenario name and shock values,
+- Greek bump sizes,
+- base and bumped prices,
+- CPU/FPGA Q16.16 delta when `--target both` is used,
+- any unsupported feature fallback.
+
+Do not hide estimator noise behind polished reports. Scenario and Greek outputs should be auditable back to individual pricing jobs.
 
 ## Standard Accuracy Runs
 
@@ -119,14 +137,15 @@ python scripts\accuracy_study.py --preset smoke --paths-list 4096,8192,16384 --s
 - Non-dividend CALLs should not use noisy early-exercise regression while `q=0`.
 - Regression health metrics are required before translating new financial behavior into RTL.
 
-## What Accuracy Does Not Claim
+## What Accuracy Does Not Claim Yet
 
-This project does not claim:
+This fork does not yet claim:
 
-- dividend yield support,
 - production market-maker bps across all options,
+- dividend yield support,
 - path-dependent payoff accuracy,
 - multi-asset correlation support,
-- variance-reduction beyond the existing QMC/Sobol setup.
+- portfolio-level risk accuracy,
+- variance reduction beyond the existing QMC/Sobol setup.
 
-Those belong to the next product phase.
+Those belong to the next product phases and need their own references.

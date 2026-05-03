@@ -1,22 +1,39 @@
-# Project Report: FPGA-Accelerated QMC-LSM American Option Pricer
+# Project Report: From FPGA Option Pricer To Portfolio Risk Engine
 
 ## Executive Summary
 
-This project built a complete FPGA pricing kernel for American-style option pricing using Longstaff-Schwartz Monte Carlo (LSM), Sobol quasi-Monte Carlo (QMC), fixed-point arithmetic, and UART-based host control. The final thesis build supports both the original single-exercise-date flow and a full multi-exercise-date LSM flow. The multi-date build closes timing at 100 MHz on both Arty A7-100T and Arty S7-50, matches the bit-exact C++ mirror in RTL simulation, and includes tools to measure financial accuracy against a high-precision American binomial reference.
+This fork starts from a completed FPGA-accelerated QMC-LSM American option pricing kernel and reframes it as the computational core of a portfolio risk engine.
 
-The core result is not "Black-Scholes with noise." The project proves a deterministic hardware LSM pipeline that can be extended to products where trees become unattractive: path-dependent payoffs, basket options, correlated assets, scenario sweeps, and portfolio Greeks.
+The inherited kernel is already a useful artifact: it implements Sobol quasi-Monte Carlo path generation, fixed-point GBM, Longstaff-Schwartz early-exercise regression, UART host control, a bit-exact C++ mirror, financial accuracy studies, and 100 MHz routed builds for Arty A7-100T and Arty S7-50. The new work is to wrap that kernel in portfolio, scenario, and Greeks infrastructure so the acceleration applies to repeated valuation instead of a single demonstration option.
 
-## What The Project Proves
+The central thesis of this fork is simple:
 
-The completed thesis kernel proves five things:
+```text
+The FPGA option pricer is most useful when the host needs to reprice many contracts many times.
+```
+
+That includes scenario sweeps, bump/revalue Greeks, path-dependent payoffs, and multi-asset products where binomial trees and PDE grids become less attractive.
+
+## Fork Identity
+
+Recommended identity:
+
+- FPGA-Accelerated QMC-LSM Portfolio Risk Engine
+- Hardware-Accelerated Scenario Pricing and Greeks Engine for Complex Derivatives
+
+Avoid using "sentiment-driven options pricer" as the main identity. Event or sentiment features may become useful later, but only as inputs to scenario weighting, volatility, correlation, or jump-risk forecasts. They are not the foundation of the engineering story.
+
+## Foundation: Completed Kernel
+
+The inherited kernel proves five important things:
 
 1. A Sobol/QMC LSM pricing algorithm can be implemented as synthesizable SystemVerilog with fixed-point math.
 2. The C++ model and RTL can be made bit-exact by sharing the Sobol stream, LUTs, fixed-point transforms, and regression rules.
 3. Multi-exercise LSM materially improves American PUT accuracy compared with the original single-exercise-date model.
-4. The remaining pricing error is primarily financial estimator/model error, not hardware arithmetic error.
+4. The remaining pricing error is primarily estimator/model error, not hardware arithmetic error.
 5. The hardware kernel fits and routes at 100 MHz on both the Arty A7-100T and the Spartan-7 based Arty S7-50.
 
-## Completed Hardware Results
+## Final Kernel Results
 
 ### Timing
 
@@ -25,7 +42,7 @@ The completed thesis kernel proves five things:
 | Arty A7-100T | XC7A100T | `vivado_build/arty_a7_100_multi_10ns` | 100 MHz | +0.153 ns | 0.000 ns | 0 |
 | Arty S7-50 | XC7S50 | `vivado_build/arty_s7_50_multi_10ns` | 100 MHz | +0.113 ns | 0.000 ns | 0 |
 
-The slack values come from post-route Vivado `timing_post_route.rpt`. A positive WNS means the design meets the requested clock. The current practical maximum clock is just above 100 MHz, because the 10 ns builds have roughly 0.1 to 0.15 ns of setup margin. A real fmax sweep would use tighter constraints such as 9.8 ns, 9.6 ns, and 9.4 ns.
+The slack values come from post-route Vivado `timing_post_route.rpt`. A positive WNS means the design meets the requested clock. The current practical maximum clock is only proven slightly above 100 MHz; a real fmax claim would need tighter constraints such as 9.8 ns, 9.6 ns, and 9.4 ns.
 
 ### Resource Use
 
@@ -34,422 +51,195 @@ The slack values come from post-route Vivado `timing_post_route.rpt`. A positive
 | Arty A7-100T | 23,167 / 63,400 = 36.54% | 27,873 / 126,800 = 21.98% | 80 / 240 = 33.33% | 16 / 135 = 11.85% |
 | Arty S7-50 | 23,154 / 32,600 = 71.02% | 27,873 / 65,200 = 42.75% | 80 / 120 = 66.67% | 16 / 75 = 21.33% |
 
-BRAM is low because the multi-date architecture stores only one cashflow per path instead of the full `S[path][step]` grid. For `MAX_PATHS=16384`, one 32-bit cashflow per path is small enough to fit comfortably in BRAM. The design deliberately spends extra compute cycles regenerating deterministic Sobol/GBM path prefixes instead of storing all path states.
+BRAM is low because the multi-date architecture stores one cashflow per path instead of the full `S[path][step]` grid. The design spends extra cycles regenerating deterministic Sobol/GBM path prefixes instead of storing all path states.
 
-## Algorithm Background
+### Parity Snapshot
 
-### Why Longstaff-Schwartz?
+| Mode | Paths | Steps | Option | C++ Q16.16 | RTL Q16.16 | Delta | Core cycles |
+|------|-------|-------|--------|------------|------------|-------|-------------|
+| single-date | 64 | 12 | PUT | 263,688 | 263,688 | 0 LSB | 75,603 |
+| multi-date | 64 | 12 | PUT | 373,676 | 373,676 | 0 LSB | 461,245 |
+| multi-date | 256 | 12 | PUT | 426,642 | 426,642 | 0 LSB | 1,843,158 |
+| multi-date | 1024 | 12 | PUT | 428,757 | 428,757 | 0 LSB | 7,370,906 |
+| multi-date | 64 | 12 | CALL | 482,546 | 482,546 | 0 LSB | 37,726 |
 
-American options can be exercised before maturity. A closed-form Black-Scholes price exists for European vanilla options, but not for general American options. Longstaff-Schwartz estimates the value of continuing the option by regressing future discounted cashflows against basis functions of the current state.
+At 100 MHz, the 1024-path, 12-step multi-date PUT case takes 73.70906 ms of FPGA core time.
 
-At each exercise date:
+## Why QMC-LSM Belongs In A Risk Engine
 
-1. Simulate many paths.
-2. Identify in-the-money paths.
-3. Regress discounted future cashflow against current state.
-4. Exercise if immediate payoff is greater than estimated continuation value.
-5. Continue backward until time zero.
+Longstaff-Schwartz Monte Carlo estimates continuation value by regressing future discounted cashflows against current state. It is useful when products have early exercise and simulation-friendly state evolution.
 
-For this project, the multi-date PUT basis is:
+For a single vanilla American PUT, a binomial tree is a strong reference. For a portfolio risk engine, the work changes:
 
-```text
-x = S / K - 1
-continuation(S) = beta0 + beta1*x + beta2*x^2
-```
+- Revalue every position under many market scenarios.
+- Revalue positions again for delta, gamma, vega, rho, and theta bumps.
+- Extend from vanilla payoffs to path-dependent and multi-asset products.
+- Keep deterministic hardware and software parity so risk reports are reproducible.
 
-The centered basis is better conditioned than raw `[1, S/K, (S/K)^2]` because most vanilla option paths cluster around `S/K ~= 1`.
+This is where a hardware QMC-LSM kernel becomes persuasive. It can be reused as a repeated pricing primitive.
 
-### Why Sobol QMC?
+## Current Pricing Contract
 
-Monte Carlo needs random samples. Sobol QMC instead uses a deterministic low-discrepancy sequence. The goal is to cover the unit interval more evenly than pseudo-random samples, which often improves convergence for smooth integrals.
+The current kernel prices vanilla American-style options under geometric Brownian motion.
 
-Sobol generation in this project:
+PUT behavior:
 
-- uses direction numbers from `src/gen/direction.mem`,
-- applies Gray-code XOR recurrence,
-- starts at index 1 instead of index 0,
-- truncates `sobol_out[31:16]` to Q16.16 for inverse-CDF input,
-- maps a truncated zero to one LSB.
+- exercise dates are every simulated step `1..M-1`,
+- regression uses in-the-money paths only,
+- basis is centered normalized moneyness `[1, x, x^2]`, where `x = S/K - 1`,
+- singular or unstable regression falls back to mean continuation,
+- beta coefficients above 4096.0 trigger fallback.
 
-Sobol index 0 is skipped because it is a boundary point. The one-LSB guard is important because the inverse normal transform contains `ln(u)`. If `u=0`, `ln(0)` is undefined and would drive the pipeline toward extreme values, division hazards, and invalid regression data. The guard keeps the transform in the open interval while preserving the quantized hardware stream.
+CALL behavior:
 
-### Why Inverse CDF?
+- no-dividend CALL early exercise is suppressed while `q=0`,
+- the terminal fast path avoids regression bias for a product where early exercise is dominated.
 
-GBM path generation needs normally distributed shocks `z`. Sobol gives uniform samples `u` in `[0,1)`. The inverse CDF maps:
+Numerical contract:
 
-```text
-u -> z = Phi^-1(u)
-```
+- Q16.16 path values and cashflows,
+- Sobol stream from `src/gen/direction.mem`,
+- Sobol index 0 skipped,
+- truncated `u_q16=0` guarded to one LSB before inverse-CDF,
+- bit-exact C++ mirror under `baseline/cpp_fixed`.
 
-The RTL uses:
+## Product Architecture
 
-- fold around 0.5 with a sign flag,
-- LUT-based natural log,
-- fixed-point square root,
-- Zelen-Severo rational approximation,
-- event-alignment FIFOs to keep sign and data synchronized.
-
-### Why GBM?
-
-The stock process is geometric Brownian motion:
+The first product layer should be host-side. The existing UART packet and kernel validation should stay stable while the risk workflow is built around them.
 
 ```text
-S_next = S * exp((r - 0.5*sigma^2)*dt + sigma*sqrt(dt)*z)
+Portfolio CSV
+    -> contract parser and validator
+    -> parameter normalization
+    -> pricing target selector: cpu | fpga | both
+    -> C++ mirror or FPGA UART call
+    -> position results
+    -> portfolio aggregation
 ```
-
-The RTL precomputes:
-
-- `dt`,
-- `drift_const`,
-- `vol_sqrt_dt`,
-- one-step discount `disc`,
-- total discount when needed.
-
-The GBM module then streams:
 
 ```text
-z -> vol_sqrt_dt*z -> add drift -> exp LUT -> S*exp_result
+Scenario CSV
+    -> named market shocks
+    -> repeated portfolio revaluation
+    -> base value and scenario value
+    -> scenario PnL
+    -> Markdown/CSV report
 ```
-
-## Hardware Architecture
-
-### Single-Date Mode
-
-The original engine exercises only at step `M-1`. It exists as the default compatibility path and remains bit-exact with the single-date C++ mirror.
-
-Single-date mode is useful for:
-
-- original thesis continuity,
-- simple regression bring-up,
-- proving two-pass streaming path replay,
-- guarding existing UART behavior.
-
-### Multi-Date Mode
-
-The final thesis feature is `MULTI_EXERCISE=1`.
-
-Multi-date mode:
-
-- supports `NUM_LANES=1` in v1,
-- prices PUTs with exercise at every simulated step `1..M-1`,
-- suppresses no-dividend CALL early exercise while `q=0`,
-- stores terminal and updated cashflows in BRAM,
-- regenerates deterministic paths per backward exercise date,
-- trains regression on in-the-money paths only,
-- updates each path cashflow in place,
-- final-averages discounted cashflows.
-
-The core memory decision is:
 
 ```text
-Do not store S[path][step].
-Store cashflow[path].
-Regenerate S_t deterministically when needed.
+Greek request
+    -> bump generator
+    -> repeated contract or portfolio valuation
+    -> finite-difference exposures
+    -> position and portfolio Greeks
 ```
 
-This trades cycles for memory. That is the right trade for the target boards: BRAM use is only 16 RAMB36 on both A7-100T and S7-50.
+## Roadmap
 
-## UART System
+### Phase 1: Portfolio System
 
-The UART path makes the FPGA usable from a host script.
+Build:
 
-Input packet fields:
+- `examples/portfolio.csv`,
+- contract IDs,
+- `scripts/portfolio_price.py`,
+- base portfolio value,
+- CSV and Markdown outputs,
+- `--target cpu`, then `--target fpga`, then `--target both`.
 
-```text
-paths
-steps
-S0
-K
-r
-sigma
-T
-option_type
-```
+The first implementation should use the C++ mirror. That keeps product parsing separate from board availability.
 
-All numeric financial fields are Q16.16. `option_type=0` is CALL and `option_type=1` is PUT.
+### Phase 2: Scenario Sweeps
 
-Output packet fields:
+Build:
 
-```text
-marker
-price_q16
-core_cycles_low
-core_cycles_high
-status_flags
-```
+- `examples/scenarios.csv`,
+- scenario naming,
+- shock application,
+- scenario PnL,
+- position and portfolio reporting.
 
-The host converts `core_cycles` into hardware compute time:
+This is the first point where repeated pricing becomes visible to the user.
 
-```text
-hardware_seconds = core_cycles / fpga_fclk_hz
-```
+### Phase 3: Greeks
 
-This is separate from UART round-trip time. UART includes serial transfer, Python overhead, OS scheduling, and parsing. The pricing core timer is the right number for comparing the hardware kernel against CPU compute.
+Build:
 
-## C++ Mirror And Parity
+- delta,
+- gamma,
+- vega,
+- rho,
+- theta,
+- bump sizing policy,
+- position-level and portfolio-level exposure aggregation.
 
-The C++ baseline under `baseline/cpp_fixed/` has two purposes:
+Greeks naturally multiply pricing jobs, which makes them a good place to measure whether host scheduling, UART throughput, or RTL changes matter.
 
-1. **Hardware parity oracle:** `--fpga-style --exercise-mode single|multi`.
-2. **Higher-level financial comparison:** `--full-lsm`.
+### Phase 4: Payoffs Where LSM Matters More
 
-The parity oracle mirrors:
+Build:
 
-- RTL Sobol stream from `direction.mem`,
-- Sobol index skip-zero policy,
-- Q16.16 truncation,
-- inverse-CDF approximation,
-- exp/log/sqrt LUT behavior,
-- fixed-point GBM,
-- centered LSM basis,
-- regression fallback,
-- final averaging.
+- Asian payoff,
+- running-average state,
+- basket payoff,
+- correlation matrix input,
+- multidimensional Sobol mapping.
 
-This separation matters. A high-precision financial model tells you whether the method is accurate. A bit-exact mirror tells you whether hardware equals the intended method.
+This is where the original FPGA option pricer becomes more than a vanilla demo.
 
-## Numerical Diagnosis
+### Phase 5: Scenario Intelligence
 
-The project started with final price mismatches. Final-price-only debugging was not enough, so the diagnosis flow became stage-by-stage.
+Build only after the scenario infrastructure exists:
 
-`scripts/diagnose_numerical.py` runs C++ and xsim with trace tags and compares raw Q16.16 values:
+- realized volatility estimator,
+- correlation estimator,
+- simple regime classifier,
+- weighted scenario sets,
+- backtest of scenario selection.
 
-```text
-[INIT] constants
-[PATH] Sobol u, inverse-CDF z, GBM S
-[ACC-IN] regression samples
-[ACC-SUM] accumulated sums
-[BETA] regression coefficients
-[LSM] exercise decisions
-[PV] discounted cashflows
-[FINAL] average price
-```
+Event and sentiment features belong here only if they improve out-of-sample risk forecasts.
 
-This identifies the first material divergence instead of guessing from the final option price. It was used to separate:
+## What To Defer
 
-- Sobol stream differences,
-- inverse-CDF approximation differences,
-- fixed-point LUT behavior,
-- path generation alignment,
-- regression accumulation,
-- beta solve and fallback,
-- final averaging truncation.
+Do not start with RTL changes unless product measurements justify them.
 
-## Accuracy Measurement
+Deferred until measured:
 
-### References
+- RTL path batching,
+- multi-lane multi-date RTL,
+- Brownian bridge,
+- control variates,
+- dividend-yield input,
+- higher than 100 MHz fmax,
+- smaller-board retargeting.
 
-Financial accuracy is measured by `scripts/accuracy_study.py` using `scripts/financial_reference.py`.
+The final kernel uses only 16 RAMB36 on both A7-100T and S7-50, so BRAM pressure is not currently the reason to batch.
 
-References:
+## Validation Policy
 
-- American Cox-Ross-Rubinstein binomial tree, default high step count.
-- European Black-Scholes for no-dividend CALL sanity checks.
-- Single-exercise tree to isolate the old modeling gap.
+The product layer can grow only if the inherited kernel remains trustworthy.
 
-### Error Units
-
-Errors are reported as:
-
-```text
-absolute_error = model_price - reference_price
-bps_of_spot = absolute_error / S0 * 10000
-bps_of_reference = absolute_error / reference_price * 10000
-```
-
-For market-making style reasoning, bps are more useful than percentage error because small absolute option-price differences can still matter economically.
-
-### Attribution
-
-The study splits total error into:
-
-- **single-exercise model error:** only allowing exercise at `M-1`,
-- **QMC/regression error:** path estimator and regression behavior,
-- **fixed-point error:** bit-exact hardware-style result minus double Sobol LSM,
-- **total error:** hardware-style result minus American reference.
-
-This showed the important conclusion: after C++/RTL parity was fixed, the dominant issue was not Verilog arithmetic. The largest improvement came from full multi-date LSM.
-
-### Regression Health
-
-Health metrics prevent blind trust in regression:
-
-- ITM path count per exercise date,
-- fallback count and ratio,
-- max beta magnitude,
-- min/max continuation estimate,
-- negative continuation count,
-- early exercise count and rate,
-- worst exercise step,
-- average exercise boundary.
-
-These metrics exposed unstable CALL exercise behavior under `q=0`, which led to the no-dividend CALL fast path. They also justified centered moneyness and beta-cap fallback for PUT regression stability.
-
-## Key Problems Solved
-
-### Boundary Sobol Values
-
-Problem: Sobol can generate boundary values, and RTL truncation can create `u_q16=0`. Inverse-CDF cannot accept zero because `ln(0)` is undefined.
-
-Fix:
-
-```text
-if sobol_out[31:16] == 0:
-    u_q16 = 1
-else:
-    u_q16 = sobol_out[31:16]
-```
-
-This keeps the stream deterministic, quantized, and inside the valid open interval.
-
-### C++ Was Not A Valid Parity Oracle
-
-Problem: The original C++ and RTL did not consume the same Sobol stream or fixed-point math.
-
-Fix: C++ now reads `src/gen/direction.mem`, mirrors Gray-code Sobol generation, truncates exactly like RTL, uses the same guard, and mirrors fixed-point math stage by stage.
-
-### Single-Date LSM Was The Wrong Financial Target
-
-Problem: Exercise only at `M-1` is not a full American model. It can match RTL while still being financially weak.
-
-Fix: Add C++ and RTL multi-exercise LSM. PUTs now exercise at every simulated step `1..M-1`.
-
-### Regression Instability
-
-Problem: Low ITM counts or poorly conditioned basis functions can generate extreme beta coefficients.
-
-Fix:
-
-- regress only ITM PUT paths,
-- use centered basis `[1, S/K - 1, (S/K - 1)^2]`,
-- fallback to mean continuation for singular regression,
-- cap beta magnitude at 4096.0 Q16.16.
-
-### Spartan-7 Resource Pressure
-
-Problem: Earlier builds overused LUTs because too many divider IP instances were instantiated.
-
-Fix: Share divider resources where appropriate and avoid full path storage. The final S7-50 build uses 71.02% LUTs and 21.33% BRAM.
-
-### 100 MHz Timing
-
-Problem: The old `fxMul` latency setting delayed an already-computed combinational multiply result. It did not split the critical path.
-
-Fix:
-
-```text
-old: S, exp -> multiply -> round/shift -> first register
-new: S, exp -> raw product register -> round/shift register -> output
-```
-
-After that, the final averaging divider became the new critical path. Splitting divider quotient update from `result_price` writeback closed the remaining 100 MHz timing.
-
-## Performance Measurement
-
-### Core Cycles
-
-The RTL exposes a cycle counter for the pricing core. Example measured parity cases:
-
-| Mode | Paths | Steps | Option | Core cycles | 100 MHz core time |
-|------|-------|-------|--------|-------------|-------------------|
-| single-date | 64 | 12 | PUT | 75,603 | 0.75603 ms |
-| multi-date | 64 | 12 | PUT | 461,245 | 4.61245 ms |
-| multi-date | 256 | 12 | PUT | 1,843,158 | 18.43158 ms |
-| multi-date | 1024 | 12 | PUT | 7,370,906 | 73.70906 ms |
-| multi-date | 64 | 12 | CALL | 37,726 | 0.37726 ms |
-
-PUT multi-date is slower because it performs backward induction. CALL is fast because no-dividend early exercise is suppressed.
-
-### CPU Baseline Time
-
-The C++ baseline prints wall-clock time:
-
-```text
-Elapsed Time: ... seconds
-```
-
-This number is machine-dependent and includes software data structure and mirror overhead. Use it for local comparison, not as an immutable hardware claim. The FPGA metric is `core_cycles / fclk`.
-
-### Virtual Hardware Time
-
-`scripts/run_virtual_a7_benchmark.ps1` runs xsim and scales the DUT cycle counter by a chosen clock:
+Keep these gates green:
 
 ```powershell
-.\scripts\run_virtual_a7_benchmark.ps1 -ParamFile baseline\cpp_fixed\params_example.txt -FclkHz 100000000
-```
-
-This is the right no-board measurement for the core. It is not a physical USB-UART measurement.
-
-## How To Reproduce
-
-### Syntax And Parity
-
-```powershell
-python -m py_compile scripts\validate_numerical.py scripts\diagnose_numerical.py scripts\accuracy_study.py scripts\financial_reference.py scripts\vivado_build_runner.py
-.\scripts\run_xelab_smoke.ps1 -XvlogTimeoutSeconds 600 -XelabTimeoutSeconds 600 -NoCleanup
 python scripts\validate_numerical.py --exercise-mode single --paths 64 --steps 12 --option-type 1 --build-cpu
 python scripts\validate_numerical.py --exercise-mode multi --paths 64 --steps 12 --option-type 1 --build-cpu
 python scripts\validate_numerical.py --exercise-mode multi --paths 256 --steps 12 --option-type 1
 python scripts\diagnose_numerical.py --paths 64 --steps 12 --option-type 1 --exercise-mode multi
+git diff --check
 ```
 
-### Vivado Implementation
+For RTL changes, rerun the relevant Vivado implementation flow:
 
 ```powershell
 .\scripts\run_vivado_build_arty_a7.ps1 -MultiExercise -ClockPeriodNs 10 -TimeoutSeconds 21600
 .\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -ClockPeriodNs 10 -TimeoutSeconds 21600
 ```
 
-### Financial Accuracy
+## Documentation Split
 
-```powershell
-python scripts\accuracy_study.py --preset smoke --build-cpu --attribution
-python scripts\accuracy_study.py --preset default --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_default_health
-```
+- Root docs explain the fork and the inherited kernel foundation.
+- `.user` tracks project memory, roadmap, validation, and product scope.
+- `.ai` tracks AI/session handoff rules and working memory.
 
-### Hardware UART
-
-```powershell
-.\scripts\program_arty_a7.ps1 -Bit vivado_build\arty_a7_100_multi_10ns\arty_a7_qmc_multi.bit
-python src\uart_host.py --mode benchmark --target both --param-file baseline\cpp_fixed\params_example.txt --port COM4 --fpga-fclk-hz 100000000 --build-cpu
-```
-
-## Lessons Learned
-
-1. Bit-exact parity is a different problem from financial accuracy.
-2. A final price mismatch is too coarse; stage-by-stage raw Q16.16 traces find the first real divergence.
-3. Q16.16 is workable, but regression inputs must be normalized.
-4. Sobol boundary handling is not optional when the next stage computes `ln(u)`.
-5. Divider count dominates LUT pressure faster than BRAM in this design.
-6. Full path storage is unnecessary when deterministic path regeneration is possible.
-7. Increasing a latency parameter does not fix timing unless registers split the actual critical path.
-8. No-dividend CALL early exercise should be suppressed; otherwise LSM regression can invent exercise bias.
-9. Health metrics are essential before implementing complex numerical algorithms in RTL.
-10. The best next use case is not another vanilla option; it is portfolio/scenario/risk infrastructure and path-dependent payoffs.
-
-## Where This Project Ends
-
-This repository is complete as a hardware-accelerated QMC-LSM American option pricing kernel.
-
-Completed scope:
-
-- Sobol QMC and inverse-CDF pipeline,
-- fixed-point GBM path generation,
-- single-date and multi-date LSM,
-- C++/RTL bit-exact mirror,
-- financial accuracy study,
-- UART control and benchmarking,
-- 100 MHz A7-100T and S7-50 bitstreams,
-- documentation and validation scripts.
-
-The next project begins when the kernel becomes a portfolio risk system:
-
-- portfolio CSV input/output,
-- contract IDs and batch aggregation,
-- scenario PnL,
-- delta/gamma/vega/rho/theta,
-- Asian payoff,
-- basket payoff,
-- correlation input,
-- scenario weighting and market regime logic.
-
-That roadmap lives in `.user/FUTURE_PROJECT.md` and is intentionally not presented as completed root-scope thesis work.
+The old thesis kernel is not being discarded. It is the asset this fork builds around.
