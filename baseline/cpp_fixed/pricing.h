@@ -36,4 +36,12 @@ void singleExerciseInduction(
     bool isPut
 );
 
+void multiExerciseInductionRtlMirror(
+    int N, int M,
+    int32_t r, int32_t T, int32_t K,
+    std::vector<Path>& paths,
+    int32_t& price_out,
+    bool isPut
+);
+
 #endif

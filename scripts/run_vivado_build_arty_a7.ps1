@@ -1,5 +1,6 @@
 param(
     [switch]$SynthOnly,
+    [switch]$MultiExercise,
     [int]$TimeoutSeconds = 14400
 )
 
@@ -13,24 +14,54 @@ if ($SynthOnly) {
     Remove-Item Env:VIVADO_SYNTH_ONLY -ErrorAction SilentlyContinue
 }
 
-Write-Host "Running Vivado batch for Arty A7-100T (repo: $repo) ..."
-$proc = Start-Process -FilePath "vivado" -ArgumentList @(
-    "-mode", "batch",
-    "-source", (Join-Path $PSScriptRoot "vivado_build_arty_a7.tcl")
-) -PassThru -NoNewWindow
-
-if (-not $proc.WaitForExit($TimeoutSeconds * 1000)) {
-    Write-Warning "Timeout (${TimeoutSeconds}s): killing vivado PID=$($proc.Id)"
-    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-    throw "Vivado build timed out"
+if ($MultiExercise) {
+    $env:VIVADO_MULTI_EXERCISE = "1"
+    $buildDir = Join-Path $repo "vivado_build\arty_a7_100_multi"
+} else {
+    Remove-Item Env:VIVADO_MULTI_EXERCISE -ErrorAction SilentlyContinue
+    $buildDir = Join-Path $repo "vivado_build\arty_a7_100"
 }
 
-$ec = $proc.ExitCode
+Write-Host "Running Vivado batch for Arty A7-100T (repo: $repo) ..."
+if ($MultiExercise) {
+    Write-Host "Mode: MULTI_EXERCISE=1"
+} else {
+    Write-Host "Mode: single-date default"
+}
+Write-Host "Build directory: $buildDir"
+
+$tclScript = Join-Path $PSScriptRoot "vivado_build_arty_a7.tcl"
+$vivadoCommand = Get-Command vivado -ErrorAction Stop
+$vivadoPath = $vivadoCommand.Source
+$runner = Join-Path $PSScriptRoot "vivado_build_runner.py"
+$logName = if ($MultiExercise) { "vivado_arty_a7_multi" } else { "vivado_arty_a7" }
+if ($SynthOnly) { $logName += "_synth" } else { $logName += "_impl" }
+$logFile = Join-Path $repo ".tmp\$logName.log"
+
+$runnerArgs = @(
+    $runner,
+    "--repo", $repo,
+    "--vivado", $vivadoPath,
+    "--tcl-script", $tclScript,
+    "--timeout-seconds", $TimeoutSeconds,
+    "--log-file", $logFile
+)
+if ($SynthOnly) { $runnerArgs += "--synth-only" }
+if ($MultiExercise) { $runnerArgs += "--multi-exercise" }
+
+python @runnerArgs
+$ec = $LASTEXITCODE
 if ($null -ne $ec -and $ec -ne 0) {
     throw "Vivado exited with code $ec"
 }
 
 Write-Host "Vivado build finished OK."
 if (-not $SynthOnly) {
-    Write-Host "Bitstream (default): $repo\vivado_build\arty_a7_100\arty_a7_qmc.bit"
+    if ($MultiExercise) {
+        Write-Host "Bitstream (multi-date): $buildDir\arty_a7_qmc_multi.bit"
+    } else {
+        Write-Host "Bitstream (default): $buildDir\arty_a7_qmc.bit"
+    }
+} else {
+    Write-Host "Synthesis utilization report: $buildDir\utilization_synth.rpt"
 }

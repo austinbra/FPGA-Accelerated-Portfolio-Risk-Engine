@@ -3,7 +3,10 @@
 timeunit 1ns;
 timeprecision 1ps;
 
-module arty_s7_option_pricer_top (
+module arty_s7_option_pricer_top #(
+    parameter bit MULTI_EXERCISE = 1'b0,
+    parameter int unsigned MULTI_CORE_MAX_CYCLES = 32'd1_000_000_000
+)(
     input  logic CLK100MHZ,
     input  logic btn0,
     input  logic uart_txd_in,
@@ -12,7 +15,10 @@ module arty_s7_option_pricer_top (
     // BTN0 pressed = logic 1 on Arty; core uses active-low reset.
     wire rst_n = ~btn0;
 
-    top_mc_option_pricer u_top (
+    top_mc_option_pricer #(
+        .MULTI_EXERCISE(MULTI_EXERCISE),
+        .MULTI_CORE_MAX_CYCLES(MULTI_CORE_MAX_CYCLES)
+    ) u_top (
         .clk_100   (CLK100MHZ),
         .rst_btn_n (rst_n),
         .uart_rxd  (uart_txd_in),

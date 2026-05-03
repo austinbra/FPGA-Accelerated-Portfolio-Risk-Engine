@@ -20,7 +20,7 @@ timeprecision 1ps;
 // Exercise date: step M-1 (one step before maturity).  Maturity at step M.
 // =============================================================================
 
-module top_mc_option_pricer #(
+module top_mc_option_pricer_single #(
     parameter int CLK_FREQ_HZ            = 100_000_000,
     parameter int BAUD_RATE              = 115200,
     parameter int unsigned CORE_MAX_CYCLES = 32'd50_000_000,
@@ -138,6 +138,53 @@ module top_mc_option_pricer #(
 
     // Accumulation for decision pass average
     logic signed [63:0]  sum_pv;
+    logic [63:0]         final_dividend_abs;
+    logic [63:0]         final_div_remainder;
+    logic [63:0]         final_div_quotient;
+    logic [6:0]          final_div_bit;
+    logic                final_div_sign;
+    wire [63:0]          final_div_den = (lat_N == 16'd0) ? 64'd1 : {48'd0, lat_N};
+    logic [64:0]         final_div_trial_rem;
+    logic [63:0]         final_div_remainder_step;
+    logic [63:0]         final_div_quotient_step;
+
+    function automatic logic signed [W-1:0] final_avg_saturate (
+        input logic [63:0] quotient,
+        input logic sign
+    );
+        logic signed [W-1:0] max_pos;
+        logic signed [W-1:0] min_neg;
+        logic [63:0] max_pos_mag;
+        logic [63:0] max_neg_mag;
+        begin
+            max_pos = {1'b0, {W-1{1'b1}}};
+            min_neg = {1'b1, {W-1{1'b0}}};
+            max_pos_mag = {{(64-W){1'b0}}, max_pos};
+            max_neg_mag = {{(64-W){1'b0}}, 1'b1, {W-1{1'b0}}};
+
+            if (sign) begin
+                if (quotient >= max_neg_mag)
+                    final_avg_saturate = min_neg;
+                else
+                    final_avg_saturate = -$signed(quotient[W-1:0]);
+            end else begin
+                if (quotient > max_pos_mag)
+                    final_avg_saturate = max_pos;
+                else
+                    final_avg_saturate = quotient[W-1:0];
+            end
+        end
+    endfunction
+
+    always_comb begin
+        final_div_trial_rem      = {final_div_remainder[62:0], final_dividend_abs[final_div_bit]};
+        final_div_remainder_step = final_div_trial_rem[63:0];
+        final_div_quotient_step  = final_div_quotient;
+        if (final_div_trial_rem >= {1'b0, final_div_den}) begin
+            final_div_remainder_step = final_div_trial_rem[63:0] - final_div_den;
+            final_div_quotient_step[final_div_bit] = 1'b1;
+        end
+    end
 
     // Beta from regression
     logic signed [W-1:0] beta_reg [0:2];
@@ -440,6 +487,11 @@ module top_mc_option_pricer #(
                 lane_s_terminal[ln] <= '0;
             end
             sum_pv          <= '0;
+            final_dividend_abs   <= '0;
+            final_div_remainder  <= '0;
+            final_div_quotient   <= '0;
+            final_div_bit        <= '0;
+            final_div_sign       <= 1'b0;
             dt_reg          <= '0;
             drift_const_reg <= '0;
             vol_sqrt_dt_reg <= '0;
@@ -949,24 +1001,37 @@ module top_mc_option_pricer #(
             ST_FINAL_DIV: begin
                 if (core_timeout)
                     state <= ST_DONE;
-                else if (sub_phase == 0 && util_div_rout) begin
+                else if (sub_phase == 0) begin
 `ifdef TOP_NUM_DEBUG
                     $display("[NUM][FINAL] key=sum_pv value64=0x%016h signed=%0d",
                              sum_pv, $signed(sum_pv));
 `endif
-                    util_div_num <= sum_pv[W-1:0];
-                    util_div_den <= $signed({16'd0, lat_N}) <<< QF;
-                    util_div_vin <= 1'b1;
-                    sub_phase     <= 3'd1;
+                    final_div_sign      <= sum_pv[63];
+                    final_dividend_abs  <= sum_pv[63] ? -sum_pv : sum_pv;
+                    final_div_remainder <= '0;
+                    final_div_quotient  <= '0;
+                    final_div_bit       <= 7'd63;
+                    sub_phase           <= 3'd1;
                 end
-                else if (sub_phase == 1 && util_div_vout) begin
-                    result_price <= util_div_result;
+                else if (sub_phase == 1) begin
+                    final_div_remainder <= final_div_remainder_step;
+                    final_div_quotient  <= final_div_quotient_step;
+                    if (final_div_bit == 7'd0) begin
+                        result_price <= final_avg_saturate(final_div_quotient_step, final_div_sign);
 `ifdef TOP_NUM_DEBUG
-                    $display("[NUM][FINAL] key=price value=0x%08h signed=%0d",
-                             util_div_result, $signed(util_div_result));
+                        $display("[NUM][FINAL] key=avg_quotient value64=0x%016h signed=%0d",
+                                 final_div_quotient_step, $signed(final_div_quotient_step));
+                        $display("[NUM][FINAL] key=avg_den value64=0x%016h signed=%0d",
+                                 final_div_den, $signed(final_div_den));
+                        $display("[NUM][FINAL] key=price value=0x%08h signed=%0d",
+                                 final_avg_saturate(final_div_quotient_step, final_div_sign),
+                                 $signed(final_avg_saturate(final_div_quotient_step, final_div_sign)));
 `endif
-                    sub_phase     <= '0;
-                    state        <= ST_DONE;
+                        sub_phase <= '0;
+                        state     <= ST_DONE;
+                    end else begin
+                        final_div_bit <= final_div_bit - 1'b1;
+                    end
                 end
             end
 
@@ -1020,4 +1085,55 @@ module top_mc_option_pricer #(
     end
 `endif
 
+endmodule
+
+// Compile-time wrapper. The existing single-date engine remains the default
+// implementation so current C++/RTL parity is not disturbed.
+module top_mc_option_pricer #(
+    parameter int CLK_FREQ_HZ              = 100_000_000,
+    parameter int BAUD_RATE                = 115200,
+    parameter int unsigned CORE_MAX_CYCLES = 32'd50_000_000,
+    parameter int unsigned MULTI_CORE_MAX_CYCLES = 32'd1_000_000_000,
+    parameter int MAX_STEPS                = 50,
+    parameter int NUM_LANES                = 1,
+    parameter bit MULTI_EXERCISE           = 1'b0
+)(
+    input  logic clk_100,
+    input  logic rst_btn_n,
+    input  logic uart_rxd,
+    output logic uart_txd
+);
+    generate
+        if (MULTI_EXERCISE) begin : gen_multi_exercise
+            initial begin
+                assert (NUM_LANES == 1)
+                    else $fatal(1, "MULTI_EXERCISE RTL v1 supports NUM_LANES=1 only");
+            end
+
+            top_mc_option_pricer_multi #(
+                .CLK_FREQ_HZ     (CLK_FREQ_HZ),
+                .BAUD_RATE       (BAUD_RATE),
+                .CORE_MAX_CYCLES (MULTI_CORE_MAX_CYCLES),
+                .MAX_STEPS       (MAX_STEPS)
+            ) u_multi (
+                .clk_100   (clk_100),
+                .rst_btn_n (rst_btn_n),
+                .uart_rxd  (uart_rxd),
+                .uart_txd  (uart_txd)
+            );
+        end else begin : gen_single_exercise
+            top_mc_option_pricer_single #(
+                .CLK_FREQ_HZ     (CLK_FREQ_HZ),
+                .BAUD_RATE       (BAUD_RATE),
+                .CORE_MAX_CYCLES (CORE_MAX_CYCLES),
+                .MAX_STEPS       (MAX_STEPS),
+                .NUM_LANES       (NUM_LANES)
+            ) u_single (
+                .clk_100   (clk_100),
+                .rst_btn_n (rst_btn_n),
+                .uart_rxd  (uart_rxd),
+                .uart_txd  (uart_txd)
+            );
+        end
+    endgenerate
 endmodule

@@ -4,14 +4,16 @@ module tb_top_option_pricer_uart_core #(
     parameter bit EXPECT_TIMEOUT = 1'b1,
     parameter int NUM_BATCHES = 1,
     parameter int NUM_LANES = 1,
+    parameter bit MULTI_EXERCISE = 1'b0,
     parameter int TB_GLOBAL_MAX_CYCLES = 12_000_000
 );
     parameter int CLK_FREQ_HZ = 100_000_000;
     parameter int BAUD_RATE   = 115200;
     localparam int NUM_PARAMS = 8;
     localparam int NUM_RESULT = 4;
-    localparam int MAX_WAIT_CYCLES = 8_000_000;
-    localparam int unsigned DUT_CORE_MAX_CYCLES = EXPECT_TIMEOUT ? 32'd32 : 32'd2_000_000;
+    localparam int MAX_WAIT_CYCLES = (TB_GLOBAL_MAX_CYCLES > 8_000_000) ? TB_GLOBAL_MAX_CYCLES : 8_000_000;
+    localparam int unsigned DUT_CORE_MAX_CYCLES = EXPECT_TIMEOUT ? 32'd32 : 32'd50_000_000;
+    localparam int unsigned DUT_MULTI_CORE_MAX_CYCLES = EXPECT_TIMEOUT ? 32'd32 : 32'd1_000_000_000;
 
     logic clk = 1'b0;
     logic rst_n = 1'b0;
@@ -81,7 +83,9 @@ module tb_top_option_pricer_uart_core #(
         .CLK_FREQ_HZ(CLK_FREQ_HZ),
         .BAUD_RATE  (BAUD_RATE),
         .CORE_MAX_CYCLES(DUT_CORE_MAX_CYCLES),
-        .NUM_LANES  (NUM_LANES)
+        .MULTI_CORE_MAX_CYCLES(DUT_MULTI_CORE_MAX_CYCLES),
+        .NUM_LANES  (NUM_LANES),
+        .MULTI_EXERCISE(MULTI_EXERCISE)
     ) dut (
         .clk_100  (clk),
         .rst_btn_n(rst_n),
@@ -396,6 +400,16 @@ module tb_top_option_pricer_uart_compute_lanes8;
         .EXPECT_TIMEOUT(1'b0),
         .NUM_LANES  (8),
         .TB_GLOBAL_MAX_CYCLES(1_000_000_000)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+// Multi-exercise-date RTL v1: single lane, cashflow RAM, deterministic path regeneration.
+module tb_top_option_pricer_uart_compute_multi;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0),
+        .NUM_LANES(1),
+        .MULTI_EXERCISE(1'b1),
+        .TB_GLOBAL_MAX_CYCLES(1_500_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 

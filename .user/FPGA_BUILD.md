@@ -72,6 +72,31 @@ python src/uart_host.py --mode benchmark --target fpga --port COM4 --param-file 
 
 Adjust `--port` to the USB-UART COM port from Device Manager.
 
+## S7-50 Multi-Date Status
+
+The current `MULTI_EXERCISE=1` design fits and routes on Arty S7-50. Default
+constraints target 100 MHz / 10 ns; that route produces a bitstream but misses
+setup timing. The thesis build uses the same 12 ns / 83.333 MHz target as the
+A7-100T routed build:
+
+```powershell
+.\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -ClockPeriodNs 12 -TimeoutSeconds 21600
+```
+
+Outputs:
+
+| Artifact | Location |
+|----------|----------|
+| Multi-date 12 ns project | `vivado_build/arty_s7_50_multi_12ns/` |
+| Timing summary | `vivado_build/arty_s7_50_multi_12ns/timing_post_route.rpt` |
+| Utilization | `vivado_build/arty_s7_50_multi_12ns/utilization.rpt` |
+| Bitstream | `vivado_build/arty_s7_50_multi_12ns/arty_s7_qmc_multi.bit` |
+
+Current status (2026-05-02):
+- 100 MHz / 10 ns: WNS `-1.742 ns`, TNS `-596.233 ns`, 1007 failing endpoints.
+- 12 ns / 83.333 MHz: WNS `+0.082 ns`, TNS `0`, 0 failing endpoints.
+- 12 ns resources: `23,648 / 32,600` LUTs, `27,173 / 65,200` registers, `68 / 120` DSP48E1, `16 / 75` RAMB36.
+
 ## Preconditions
 
 1. **Vivado** (tested flow on 2025.1; other versions should be similar).

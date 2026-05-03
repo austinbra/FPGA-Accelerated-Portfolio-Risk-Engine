@@ -6,6 +6,12 @@
 
 using Clock = std::chrono::high_resolution_clock;
 
+enum class PricingMode {
+    FpgaStyleSingle,
+    FpgaStyleMulti,
+    FullLsm
+};
+
 struct Timer {
     Clock::time_point start;
     void reset() { start = Clock::now(); }
@@ -14,11 +20,11 @@ struct Timer {
 
 bool parseArgs(int argc, char* argv[],
                int& N, int& M, double& S0, double& K, double& r, double& sigma, double& T,
-               int& optionType, bool& fpgaStyle, bool& traceNumerical,
+               int& optionType, PricingMode& pricingMode, bool& traceNumerical,
                std::string& directionFile, std::string& lutDirectory);
 
 bool loadParamsFromFile(const std::string& filePath,
                         int& N, int& M, double& S0, double& K, double& r, double& sigma, double& T,
-                        int& optionType, bool& fpgaStyle, std::string& directionFile, std::string& lutDirectory);
+                        int& optionType, PricingMode& pricingMode, std::string& directionFile, std::string& lutDirectory);
 
 #endif

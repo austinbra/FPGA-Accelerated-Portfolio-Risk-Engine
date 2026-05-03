@@ -17,7 +17,7 @@ This allows direct comparison of **accuracy** and **performance** between CPU an
 - Validation: [`.user/VALIDATION.md`](.user/VALIDATION.md)
 - Implementation snapshot: [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md)
 - Roadmap: [`.user/ROADMAP.md`](.user/ROADMAP.md)
-- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Top-level two-pass LSMC engine compiles/elaborates clean. Default PUT C++/RTL diagnosis is bit-exact for `N=4/M=4`, `N=8/M=12`, and `N=64/M=12` using the RTL Sobol stream and fixed-point mirror. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity previously verified bit-identical price. **Arty A7-100T** routed timing meets constraints at **83.333 MHz** (`sys_clk` 12 ns in XDC); **Arty A7-35T** does not fit LUT budget without further sharing.
+- Current state: All pipeline stages fully synthesizable with ready/valid + skid buffers. Default single-date PUT C++/RTL diagnosis is bit-exact for `N=4/M=4`, `N=8/M=12`, and `N=64/M=12` using the RTL Sobol stream and fixed-point mirror. D2 error reporting, D3 antithetic variates, D4 convergence sweep complete. D5 multi-lane (`NUM_LANES` 1/2/4/8) simulation parity previously verified bit-identical price for the single-date engine. RTL multi-exercise-date v1 is compile-time selectable with `MULTI_EXERCISE=1`, supports `NUM_LANES=1`, passes C++/RTL price parity through PUT `N=8192/M=12`, and now routes on **Arty A7-100T** with WNS `+0.180 ns` at **83.333 MHz**. It also fits and routes on **Arty S7-50 / Spartan-7 XC7S50**; S7-50 passes at 12 ns / 83.333 MHz with WNS `+0.082 ns`, but misses 100 MHz by WNS `-1.742 ns`. **Arty A7-35T** does not fit LUT budget without further sharing.
 
 ---
 
@@ -104,7 +104,7 @@ On Windows the artifact may be `fixed_baseline.exe`; `uart_host.py` accepts eith
 ```bash
 ./fixed_baseline --paths 10000 --steps 50 --S0 100 --K 100 --r 0.05 --sigma 0.2 --T 1.0 --put
 ```
-Invalid flags print a usage summary. You can pass **`--input-file path/to/params.txt`**: the loader reads **`paths`**, **`steps`**, **`S0`**, **`K`**, **`r`**, **`sigma`**, **`T`**, and optional **`option_type`** (`0` = CALL, `1` = PUT), **`direction_file`**, and **`lut_dir`**. The default shared parameter files use **PUT** so the early-exercise path is meaningful. The C++ binary defaults to `--fpga-style`, matching the current RTL single-exercise date at `M-1` and mirroring RTL Sobol/LUT/division/sqrt/inverse-CDF/GBM/regression/final-average behavior; use `--full-lsm` for the full backward-induction CPU model.
+Invalid flags print a usage summary. You can pass **`--input-file path/to/params.txt`**: the loader reads **`paths`**, **`steps`**, **`S0`**, **`K`**, **`r`**, **`sigma`**, **`T`**, and optional **`option_type`** (`0` = CALL, `1` = PUT), **`direction_file`**, and **`lut_dir`**. The default shared parameter files use **PUT** so the early-exercise path is meaningful. The C++ binary defaults to `--fpga-style`, matching the current RTL single-exercise date at `M-1` and mirroring RTL Sobol/LUT/division/sqrt/inverse-CDF/GBM/regression/final-average behavior; use `--exercise-mode multi` to mirror the compile-time `MULTI_EXERCISE=1` RTL path with Q16.16 paths/cashflows, centered PUT basis, RTL regression mirror, beta-cap fallback, and no-dividend CALL terminal fast path. Use `--full-lsm` for the higher-level full backward-induction CPU model.
 
 **Run via Python host** (same params as a shared file, optional compile):
 ```bash
@@ -139,6 +139,11 @@ Useful flags on the script: `-NumLanes`, `-FclkHz`, `-XsimTimeoutSeconds`, `-Tim
    .\scripts\run_vivado_build_arty_a7.ps1 -TimeoutSeconds 14400
    ```
    Default bitstream: `vivado_build/arty_a7_100/arty_a7_qmc.bit` (see [`.user/FPGA_BUILD.md`](.user/FPGA_BUILD.md)).
+   Multi-exercise-date variant:
+   ```powershell
+   .\scripts\run_vivado_build_arty_a7.ps1 -MultiExercise -TimeoutSeconds 21600
+   ```
+   Multi-date bitstream: `vivado_build/arty_a7_100_multi/arty_a7_qmc_multi.bit`.
 
 2. **Program the board** (Vivado batch):
    ```powershell
@@ -181,12 +186,13 @@ python src/uart_host.py --mode benchmark --target fpga --param-file baseline/cpp
 | **CPU vs FPGA (hardware)** | `--mode benchmark --target both` or `scripts/run_fpga_benchmark.ps1` | Final **BENCHMARK COMPARISON**: prices, **rel_err**, **CPU wall time**, **FPGA compute time** (`core_cycles / fpga_fclk`), **speedup** (UART round-trip is printed separately and is *not* the compute timer). |
 | **CPU vs “FPGA” in sim (STA-scaled)** | `scripts/run_virtual_a7_benchmark.ps1` or `--target virtual` | Script summary: price delta, Q16 line when applicable, **Speedup est** from CPU wall vs scaled sim cycles. Read the **Provenance** / note about TB clock vs STA `fclk`. |
 | **Gate: sim price vs C++ (fixed TB params)** | Build C++ binary, then from repo root: `python scripts/validate_numerical.py` | Runs a **fixed** small case (64 paths, 12 steps—see script) through **xsim** and C++; expects exact or 1-LSB Q16.16 parity for the FPGA-style oracle. |
+| **Financial accuracy study** | `python scripts/accuracy_study.py --preset smoke --build-cpu --attribution` | Compares the bit-exact FPGA-style proxy against in-repo American CRR and Black-Scholes sanity references, with bps attribution for model, estimator, and fixed-point error. |
 
 For day-to-day RTL confidence, follow the checklist in [`.user/VALIDATION.md`](.user/VALIDATION.md).
 
 ### Other configurations you may need
 
-- **Param file** (`--param-file`): `paths`, `steps`, `S0`, `K`, `r`, `sigma`, `T`; optional **`option_type`** (`0` = CALL, `1` = PUT). `uart_host.py`, the virtual benchmark, the UART testbench, and the C++ `fixed_baseline` all consume this field. The shared repo defaults use **PUT** (`1`) because non-dividend American calls collapse to European-call behavior under the basic GBM assumptions. Current RTL and default C++ comparison mode are single-exercise-date; full multi-date LSM remains roadmap work.
+- **Param file** (`--param-file`): `paths`, `steps`, `S0`, `K`, `r`, `sigma`, `T`; optional **`option_type`** (`0` = CALL, `1` = PUT). `uart_host.py`, the virtual benchmark, the UART testbench, and the C++ `fixed_baseline` all consume this field. The shared repo defaults use **PUT** (`1`) because non-dividend American calls collapse to European-call behavior under the basic GBM assumptions. Current default RTL and default C++ comparison mode are single-exercise-date; `fixed_baseline --exercise-mode multi` mirrors the experimental `MULTI_EXERCISE=1` RTL path.
 - **`NUM_LANES` / `-NumLanes`**: `paths` must be divisible by lane count; `lat_N` divisibility rules apply in RTL (see VALIDATION).
 - **Board / build**: Primary **Arty A7-100T**; **A7-35T** script exists but may not meet LUTs without a smaller config. **Arty S7-50** flow and `fxDiv` IP are documented in [`.user/FPGA_BUILD.md`](.user/FPGA_BUILD.md) (`run_vivado_build_arty_s7.ps1`, synth-only env `VIVADO_SYNTH_ONLY`).
 - **UART**: `--port`, `--baud`, `--timeout` on `uart_host.py`.
@@ -197,7 +203,7 @@ For day-to-day RTL confidence, follow the checklist in [`.user/VALIDATION.md`](.
 .\scripts\run_vivado_build_arty_s7.ps1 -SynthOnly
 Remove-Item Env:VIVADO_SYNTH_ONLY -ErrorAction SilentlyContinue
 ```
-Full S7 place/route + bitstream: `.\scripts\run_vivado_build_arty_s7.ps1` (optional `-TimeoutSeconds`).
+Full S7 place/route + bitstream: `.\scripts\run_vivado_build_arty_s7.ps1` (optional `-TimeoutSeconds`). Multi-date S7 thesis build at 83.333 MHz: `.\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -ClockPeriodNs 12 -TimeoutSeconds 21600`.
 
 **Numerical validation** (run from **repository root**; builds on the same `run_tb_top_uart_safe.ps1 -ComputeMode` flow as [`.user/VALIDATION.md`](.user/VALIDATION.md)):
 ```bash
@@ -211,11 +217,21 @@ python scripts/validate_numerical.py
 python scripts/diagnose_numerical.py --paths 4 --steps 4 --option-type 1
 python scripts/diagnose_numerical.py --paths 8 --steps 12 --option-type 1
 python scripts/diagnose_numerical.py --paths 64 --steps 12 --option-type 1
+python scripts/diagnose_numerical.py --paths 64 --steps 12 --option-type 1 --exercise-mode multi
+```
+
+**Financial accuracy study** reports bps versus high-precision references and can sweep path counts:
+```bash
+python scripts/accuracy_study.py --preset smoke --build-cpu --attribution
+python scripts/accuracy_study.py --preset smoke --paths-list 64,256,1024,4096 --build-cpu --attribution --output-dir .tmp/accuracy_path_sweep
+python scripts/accuracy_study.py --preset smoke --paths-list 256,1024,4096 --exercise-mode both --build-cpu --attribution --output-dir .tmp/accuracy_multi
 ```
 
 ### Current status
 - Top-level two-pass LSMC engine compiles and elaborates clean. **All modules fully synthesizable.**
 - Default ATM PUT diagnosis passes bit-exact C++/RTL trace parity for the small, medium, and fixed validation cases. Use `scripts/diagnose_numerical.py` whenever a future change reintroduces a first divergent stage.
+- Sobol direction generation now uses the corrected Joe-Kuo recurrence and an explicit implicit first dimension; this fixed the high cross-dimension correlation that biased terminal GBM paths.
+- Financial accuracy reports are generated by `scripts/accuracy_study.py`; the current large-path smoke sweep shows estimator error dropping with N while fixed-point error remains much smaller. The C++ multi-exercise-date mirror is now the parity oracle for the compile-time `MULTI_EXERCISE=1` RTL path.
 - 8 numerical bugs fixed in Phase 7 (see [`.user/VALIDATION.md`](.user/VALIDATION.md) for details).
 - PUT/CALL runtime flag implemented (D1 complete).
 - Phase 4 complete: FSM fires Sobol for step k+1 in the same cycle GBM outputs step k.
@@ -224,23 +240,23 @@ python scripts/diagnose_numerical.py --paths 64 --steps 12 --option-type 1
 - **D3 complete**: Antithetic variates (paired z/−z paths) double effective path count.
 - **D4 complete**: Convergence sweep mode for empirical QMC convergence analysis.
 - **Precision centralization**: All FP constants from `fpga_cfg_pkg.sv`; elaboration assertions verify precomputed values.
-- Next: FPGA hardware testing (throughput vs `NUM_LANES` on silicon), multi-exercise-date expansion.
+- Next: FPGA hardware testing, optional `M=20` multi-date simulation spots, and host/system portfolio work. Path batching stays deferred unless larger `M`, portfolio scheduling, timing, or a smaller FPGA target proves it is needed.
 
 ---
 
 ## Testing
 - **Unit testbenches** for Sobol, inverse CDF, GBM, accumulator, and regression.  
 - **Assertions** check handshake invariants and stall stability.  
-- **C++ vs FPGA comparison**:  
-  - Run both baselines and FPGA simulation with the same seeds/parameters.  
-  - Compare option prices and timing.  
-  - Expect <1% relative error (well within Monte Carlo variance).  
+- **C++ vs FPGA comparison**:
+  - Run both baselines and FPGA simulation with the same Sobol stream and parameters.
+  - Expect exact or 1-LSB Q16.16 parity for the FPGA-style oracle.
+  - Use `scripts/accuracy_study.py` for financial error versus American/European references.
 
 ---
 
 ## Roadmap
 - [x] Fixed‑point math library (fxMul, fxDiv, fxExpLUT, fxLnLUT, fxSqrt) with skid buffers.
-- [x] Sobol generator (Gray-coded XOR tree, skid-buffered output).
+- [x] Sobol generator (Gray-coded XOR tree, corrected Joe-Kuo direction table, skid-buffered output).
 - [x] Inverse CDF (fold + Zelen–Severo, event-alignment FIFO for negate flag).
 - [x] GBM streaming pipeline (MUL→EXP→MUL, input skid buffer, pre-computed constants).
 - [x] Accumulator + Regression (64-bit sums, Gaussian elimination, fallback).
@@ -259,7 +275,7 @@ python scripts/diagnose_numerical.py --paths 64 --steps 12 --option-type 1
 - [x] Antithetic variates (D3): paired z/−z paths double effective N for variance reduction.
 - [x] Convergence sweep mode (D4): `--mode sweep` for empirical QMC convergence analysis.
 - [x] Lane replication (NUM_LANES 2/4/8): bit-identical price vs single lane in sim; on-board throughput TBD.
-- [ ] Multi-exercise-date expansion (full backward induction).
+- [x] Multi-exercise-date expansion v1: compile-time `MULTI_EXERCISE=1`, `NUM_LANES=1`, cashflow BRAM, deterministic path regeneration, PUT backward induction, CALL terminal fast path, C++/RTL parity through `N=8192/M=12`, and A7-100T timing-clean bitstream.
 
 > :warning: Active development — Phases 1-13 complete. All modules fully synthesizable.
 

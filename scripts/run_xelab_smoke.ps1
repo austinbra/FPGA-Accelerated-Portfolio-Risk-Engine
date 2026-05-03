@@ -8,6 +8,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$projectRoot = Split-Path $PSScriptRoot -Parent
+$toolTmpRoot = Join-Path $projectRoot ".tmp"
+New-Item -ItemType Directory -Force -Path $toolTmpRoot | Out-Null
+$env:TEMP = $toolTmpRoot
+$env:TMP = $toolTmpRoot
+
+try {
+    Get-ChildItem Env: | Out-Null
+} catch {
+    Remove-Item Env:PATH -ErrorAction SilentlyContinue
+}
 
 function Invoke-ToolWithTimeout {
     param(
@@ -19,7 +30,6 @@ function Invoke-ToolWithTimeout {
     $argString = ($Args | ForEach-Object { if ($_ -match '\s') { '"' + $_ + '"' } else { $_ } }) -join ' '
     Write-Host "Running: $Exe $argString"
 
-    $projectRoot = Split-Path $PSScriptRoot -Parent
     $proc = Start-Process -FilePath $Exe -ArgumentList $Args -PassThru -NoNewWindow -WorkingDirectory $projectRoot
     if (-not $proc.WaitForExit($TimeoutSec * 1000)) {
         Write-Warning "Timeout ($TimeoutSec s): killing $Exe (PID=$($proc.Id))"
@@ -56,6 +66,7 @@ $sources = @(
     "src/io/uart/uart_rx32.sv",
     "src/io/uart/uart_tx32.sv",
     "src/io/handlers/uart_input_handler.sv",
+    "src/top/top_option_pricer_multi.sv",
     "src/top/top_option_pricer.sv"
 )
 

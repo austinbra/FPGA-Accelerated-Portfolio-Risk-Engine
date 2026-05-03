@@ -90,6 +90,7 @@ set rtl [list \
     [file join $repo_root src io uart uart_rx32.sv] \
     [file join $repo_root src io uart uart_tx32.sv] \
     [file join $repo_root src io handlers uart_input_handler.sv] \
+    [file join $repo_root src top top_option_pricer_multi.sv] \
     [file join $repo_root src top top_option_pricer.sv] \
     [file join $repo_root fpga arty_a7_option_pricer_top.sv] \
 ]

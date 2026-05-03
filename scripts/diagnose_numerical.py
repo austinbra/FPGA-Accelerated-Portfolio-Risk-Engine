@@ -107,10 +107,17 @@ def normalize_key(record: TraceRecord, source: str) -> TraceKey | None:
     pass_name = record.pass_name
 
     # CPU simulates one path set. RTL regenerates the path set in train and
-    # decide passes, so align CPU PATH records against the train pass.
+    # decide passes. Multi-date RTL also has an initial terminal pass, which is
+    # the only regenerated pass that reaches all M steps. Keep the first
+    # matching pass in trace order.
     if record.stage == "PATH":
-        if source == "rtl" and pass_name not in ("", "train"):
+        if source == "rtl" and pass_name not in ("", "terminal", "train"):
             return None
+        pass_name = ""
+    elif pass_name in ("multi", "terminal", "train", "decide", "final"):
+        # Multi-date C++ tags the financial induction records as pass=multi.
+        # RTL uses more granular pass labels because it regenerates paths.
+        # Stage/path/step/key identify the comparable financial record.
         pass_name = ""
 
     return TraceKey(
@@ -200,6 +207,8 @@ def run_cpu_trace(args: argparse.Namespace, baseline_dir: Path) -> str:
         "--option-type",
         str(args.option_type & 1),
         "--fpga-style",
+        "--exercise-mode",
+        args.exercise_mode,
         "--trace-numerical",
         "--direction-file",
         str(baseline_dir.parents[1] / "src" / "gen" / "direction.mem"),
@@ -232,7 +241,7 @@ def run_rtl_trace(args: argparse.Namespace, repo_root: Path) -> str:
         "Bypass",
         "-File",
         str(script),
-        "-ComputeMode",
+        "-MultiExercise" if args.exercise_mode == "multi" else "-ComputeMode",
         "-NoCleanup",
         "-DebugNum",
         "-XvlogTimeoutSeconds",
@@ -316,6 +325,7 @@ def main() -> int:
     parser.add_argument("--sigma", type=float, default=0.2)
     parser.add_argument("--T", type=float, default=1.0)
     parser.add_argument("--option-type", type=int, default=1, help="0=CALL, 1=PUT")
+    parser.add_argument("--exercise-mode", choices=("single", "multi"), default="single")
     parser.add_argument("--build-cpu", action="store_true")
     parser.add_argument("--tolerance-lsb", type=int, default=0)
     parser.add_argument("--xvlog-timeout-seconds", type=int, default=1800)
@@ -329,7 +339,8 @@ def main() -> int:
     print("Numerical diagnosis: C++ trace vs RTL TOP_NUM_DEBUG trace")
     print(
         f"  paths={args.paths} steps={args.steps} S0={args.S0} K={args.K} "
-        f"r={args.r} sigma={args.sigma} T={args.T} option_type={args.option_type & 1}"
+        f"r={args.r} sigma={args.sigma} T={args.T} option_type={args.option_type & 1} "
+        f"exercise_mode={args.exercise_mode}"
     )
 
     print("[1/2] Running C++ trace...")

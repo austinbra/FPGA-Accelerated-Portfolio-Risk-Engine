@@ -9,6 +9,16 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path $PSScriptRoot -Parent
 if (-not $projectRoot) { $projectRoot = Get-Location }
+$toolTmpRoot = Join-Path $projectRoot ".tmp"
+New-Item -ItemType Directory -Force -Path $toolTmpRoot | Out-Null
+$env:TEMP = $toolTmpRoot
+$env:TMP = $toolTmpRoot
+
+try {
+    Get-ChildItem Env: | Out-Null
+} catch {
+    Remove-Item Env:PATH -ErrorAction SilentlyContinue
+}
 
 function Invoke-ToolWithTimeout {
     param(
@@ -57,6 +67,7 @@ $sources = @(
     "src/io/uart/uart_rx32.sv",
     "src/io/uart/uart_tx32.sv",
     "src/io/handlers/uart_input_handler.sv",
+    "src/top/top_option_pricer_multi.sv",
     "src/top/top_option_pricer.sv"
 )
 

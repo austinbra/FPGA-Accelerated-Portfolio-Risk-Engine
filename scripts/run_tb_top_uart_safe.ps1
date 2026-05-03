@@ -7,6 +7,7 @@ param(
     [int]$XsimTimeoutSeconds = 600,
     [switch]$ComputeMode,
     [switch]$Multibatch,  # Run tb_top_option_pricer_uart_multibatch (2 batches, compute mode)
+    [switch]$MultiExercise,  # Run single-lane multi-exercise-date RTL wrapper
     [switch]$NoCleanup,
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
@@ -76,6 +77,10 @@ function Invoke-ToolWithTimeout {
         $err = Get-Content $stderrFile -Raw -ErrorAction SilentlyContinue
         if ($out) { Write-Output $out }
         if ($err) { Write-Output $err }
+        $combined = "$out`n$err"
+        if ($combined -match "(?m)^(ERROR|FATAL):") {
+            throw "$Exe reported an ERROR/FATAL message"
+        }
         # ExitCode can be null with Start-Process on some Windows setups; only fail on definite non-zero
         $ec = $proc.ExitCode
         if ($null -ne $ec -and $ec -ne 0) {
@@ -110,6 +115,7 @@ $sources = @(
     "src/io/uart/uart_rx32.sv",
     "src/io/uart/uart_tx32.sv",
     "src/io/handlers/uart_input_handler.sv",
+    "src/top/top_option_pricer_multi.sv",
     "src/top/top_option_pricer.sv",
     "tb/tb_top_option_pricer_uart.sv"
 )
@@ -127,6 +133,9 @@ Invoke-ToolWithTimeout -Exe $XvlogExe -CmdArgs ($baseArgs + $sources) -TimeoutSe
 if ($Multibatch) {
     $top = "work.tb_top_option_pricer_uart_multibatch"
     $snap = "tb_top_option_pricer_uart_multibatch_sim"
+} elseif ($MultiExercise) {
+    $top = "work.tb_top_option_pricer_uart_compute_multi"
+    $snap = "tb_top_option_pricer_uart_compute_multi_sim"
 } elseif ($ComputeMode) {
     if ($NumLanes -eq 2) {
         $top = "work.tb_top_option_pricer_uart_compute_lanes2"

@@ -3,7 +3,7 @@
 > **What's already built:** see [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md)
 > **How to verify:** see [`VALIDATION.md`](VALIDATION.md)
 
-Last updated: 2026-04-19 (Priority 1 split: 1a / 1b)
+Last updated: 2026-05-02 (RTL multi-date v1 price parity plus A7-100T and S7-50 implementation completed)
 
 ---
 
@@ -53,18 +53,30 @@ Last updated: 2026-04-19 (Priority 1 split: 1a / 1b)
 
 **Deliverable:** Optional hardware-measured price match; real UART round-trip time; **or** defer 1b entirely if you only need STA + virtual cycles (document which you used).
 
+**S7-50 update:** multi-date v1 now fits and passes timing at 12 ns / 83.333 MHz with `.\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -ClockPeriodNs 12 -TimeoutSeconds 21600`. The 10 ns / 100 MHz route fits but misses setup timing by WNS `-1.742 ns`.
+
 ---
 
 ## Priority 2: Multi-exercise-date (full backward induction)
 
 **Goal:** American option with M-1 exercise opportunities, not just step M-1.
 
-**What changes:**
-- Top FSM gains M-1 training passes, one per exercise date, stepping backward
-- Per-step beta arrays (M-1 x 3 coefficients) need BRAM storage
-- `lsm_decision` runs at each step with the relevant beta row
+**Current status:** RTL multi-date v1 is implemented behind compile parameter `MULTI_EXERCISE=1`. It supports `NUM_LANES=1`, stores one Q16.16 cashflow per path in synchronous BRAM, regenerates deterministic Sobol/GBM paths for each exercise date, performs PUT backward induction over steps `M-1..1`, and uses a no-dividend CALL terminal-payoff fast path. The C++ `fixed_baseline --exercise-mode multi` is now the bit-exact mirror for this RTL path: centered PUT basis `[1, S/K-1, (S/K-1)^2]`, RTL regression mirror, and beta-cap fallback at `4096`.
 
-**Effort:** High. This is the largest remaining architectural change.
+**Parity status:** passing trace parity for PUT `N=4/M=4`, PUT `N=8/M=12`, PUT `N=64/M=12`, and CALL `N=8/M=12`. Parameterized non-debug price parity passes PUT `N=64/M=12`, PUT `N=256/M=12`, PUT `N=1024/M=12`, PUT `N=4096/M=12`, PUT `N=8192/M=12`, and CALL `N=64/M=12`, all at `0` Q16.16 LSB delta. Single-date default parity remains passing. The `N=4096/M=12` multi-date PUT run returns `0x0006235d` in `25,685,613` core cycles, about `0.308227 s`; the `N=8192/M=12` run returns `0x0004e45d` in `51,371,559` core cycles, about `0.616459 s` at the current `83.333 MHz` STA target.
+
+**Implementation status:** A7-100T multi-date full implementation passes in `vivado_build/arty_a7_100_multi`. Post-route timing at the 12 ns constraint is clean: WNS `+0.180 ns`, TNS `0`, 0 failing endpoints, fully routed. Routed utilization is `23,646` LUTs, `27,083` registers, `68` DSP48E1, and `16` RAMB36 tiles. S7-50 multi-date full implementation also passes at 12 ns: WNS `+0.082 ns`, TNS `0`, 0 failing endpoints, `23,648` LUTs, `27,173` registers, `68` DSP48E1, and `16` RAMB36 tiles. At 10 ns / 100 MHz, S7-50 fits and routes but misses timing with WNS `-1.742 ns`. The cashflow memory now infers as BRAM, so batching is not justified by current A7-100T or S7-50 BRAM pressure.
+
+**Next gate:** optional `M=20` simulation spot checks, 100 MHz timing work if required, and host/system work. Path batching should be added only if `M=20`, larger portfolio runs, timing, or a smaller target FPGA proves the cashflow-BRAM design needs it.
+
+**What changes:**
+- Default top wrapper keeps the single-date engine unless `MULTI_EXERCISE=1`
+- Multi-date v1 does not store `S[path][step]`; it stores cashflows and regenerates each path prefix per exercise date
+- PUT training accumulates only ITM paths at each exercise step, then decisions update cashflow RAM in place
+- CALL skips backward regression/decision while `q=0`
+- Multi-lane multi-date and path batching remain later performance/resource phases
+
+**Effort remaining:** Medium-high. The first RTL architecture is in place; production hardening is now cycle/resource/timing evidence rather than a blank-page FSM.
 
 ---
 

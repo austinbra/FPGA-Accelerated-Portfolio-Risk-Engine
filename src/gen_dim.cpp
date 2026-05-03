@@ -22,8 +22,22 @@ int main(){
         return 1;
     }
 
+    auto write_direction = [&](const std::vector<uint32_t>& v) {
+        for (int i = 0; i < BITS; ++i) {
+            outfile << std::hex << std::setw(8) << std::setfill('0') << v[i] << "\n";
+        }
+    };
+
+    // Joe-Kuo files start at dimension 2; dimension 1 is implicit.
+    std::vector<uint32_t> first_dim;
+    first_dim.reserve(BITS);
+    for (int i = 0; i < BITS; ++i) {
+        first_dim.push_back(1u << (31 - i));
+    }
+    write_direction(first_dim);
+
     std::string line;
-    int dim_count = 0;
+    int dim_count = 1;
 
     while (std::getline(infile, line)) {
         if (line.empty() || line[0] == '#') continue; // skip comments
@@ -41,17 +55,15 @@ int main(){
 
         //compute directions
         for (int i = s; i < BITS; ++i) {
-            uint32_t val = v[i - s] >> s;
-            for (int k = 1; k <= s; ++k)
-                if ((a >> (s - k)) & 1)
+            uint32_t val = v[i - s] ^ (v[i - s] >> s);
+            for (int k = 1; k < s; ++k)
+                if ((a >> (s - 1 - k)) & 1)
                     val ^= v[i - k];
             v.push_back(val);
         }
 
-        // write hte first 32 direction numbers
-        for (int i = 0; i < BITS; ++i) {
-            outfile << std::hex << std::setw(8) << std::setfill('0') << v[i] << "\n";
-        }
+        // write the first 32 direction numbers
+        write_direction(v);
 
         if (++dim_count == M)
             break;
