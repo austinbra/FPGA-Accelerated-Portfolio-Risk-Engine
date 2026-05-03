@@ -1055,19 +1055,21 @@ module top_mc_option_pricer_multi #(
                     final_div_remainder <= final_div_remainder_step;
                     final_div_quotient <= final_div_quotient_step;
                     if (final_div_bit == 7'd0) begin
-                        result_price <= final_avg_saturate(final_div_quotient_step, final_div_sign);
-`ifdef TOP_NUM_DEBUG
-                        $display("[NUM][FINAL] key=avg_quotient value64=0x%016h signed=%0d", final_div_quotient_step, $signed(final_div_quotient_step));
-                        $display("[NUM][FINAL] key=avg_den value64=0x%016h signed=%0d", final_div_den, $signed(final_div_den));
-                        $display("[NUM][FINAL] key=price value=0x%08h signed=%0d",
-                                 final_avg_saturate(final_div_quotient_step, final_div_sign),
-                                 $signed(final_avg_saturate(final_div_quotient_step, final_div_sign)));
-`endif
-                        sub_phase <= '0;
-                        state <= ST_DONE;
+                        sub_phase <= 4'd2;
                     end else begin
                         final_div_bit <= final_div_bit - 1'b1;
                     end
+                end else if (sub_phase == 2) begin
+                    result_price <= final_avg_saturate(final_div_quotient, final_div_sign);
+`ifdef TOP_NUM_DEBUG
+                    $display("[NUM][FINAL] key=avg_quotient value64=0x%016h signed=%0d", final_div_quotient, $signed(final_div_quotient));
+                    $display("[NUM][FINAL] key=avg_den value64=0x%016h signed=%0d", final_div_den, $signed(final_div_den));
+                    $display("[NUM][FINAL] key=price value=0x%08h signed=%0d",
+                             final_avg_saturate(final_div_quotient, final_div_sign),
+                             $signed(final_avg_saturate(final_div_quotient, final_div_sign)));
+`endif
+                    sub_phase <= '0;
+                    state <= ST_DONE;
                 end
             end
 

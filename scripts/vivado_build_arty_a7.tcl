@@ -34,10 +34,31 @@ foreach arg $argv {
     }
 }
 
+set clock_period_ns ""
+if {[info exists ::env(VIVADO_CLOCK_PERIOD_NS)] && ($::env(VIVADO_CLOCK_PERIOD_NS) ne "")} {
+    set clock_period_ns $::env(VIVADO_CLOCK_PERIOD_NS)
+}
+for {set i 0} {$i < [llength $argv]} {incr i} {
+    if {[lindex $argv $i] eq "--clock-period-ns"} {
+        incr i
+        if {$i < [llength $argv]} {
+            set clock_period_ns [lindex $argv $i]
+        }
+    }
+}
+if {$clock_period_ns ne ""} {
+    set ::A7_SYS_CLK_PERIOD_NS $clock_period_ns
+    puts "INFO: A7 sys_clk period override = $::A7_SYS_CLK_PERIOD_NS ns"
+}
+
 if {$multi_exercise} {
     set build_dir [file join $repo_root vivado_build arty_a7_100_multi]
 } else {
     set build_dir [file join $repo_root vivado_build arty_a7_100]
+}
+if {$clock_period_ns ne ""} {
+    set clock_tag [string map {. p} $clock_period_ns]
+    set build_dir "${build_dir}_${clock_tag}ns"
 }
 file mkdir $build_dir
 

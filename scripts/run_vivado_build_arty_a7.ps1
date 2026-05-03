@@ -1,6 +1,7 @@
 param(
     [switch]$SynthOnly,
     [switch]$MultiExercise,
+    [double]$ClockPeriodNs = 0.0,
     [int]$TimeoutSeconds = 14400
 )
 
@@ -22,6 +23,14 @@ if ($MultiExercise) {
     $buildDir = Join-Path $repo "vivado_build\arty_a7_100"
 }
 
+if ($ClockPeriodNs -gt 0.0) {
+    $env:VIVADO_CLOCK_PERIOD_NS = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:0.###}", $ClockPeriodNs)
+    $periodTag = $env:VIVADO_CLOCK_PERIOD_NS.Replace(".", "p")
+    $buildDir = "${buildDir}_${periodTag}ns"
+} else {
+    Remove-Item Env:VIVADO_CLOCK_PERIOD_NS -ErrorAction SilentlyContinue
+}
+
 Write-Host "Running Vivado batch for Arty A7-100T (repo: $repo) ..."
 if ($MultiExercise) {
     Write-Host "Mode: MULTI_EXERCISE=1"
@@ -29,6 +38,9 @@ if ($MultiExercise) {
     Write-Host "Mode: single-date default"
 }
 Write-Host "Build directory: $buildDir"
+if ($ClockPeriodNs -gt 0.0) {
+    Write-Host "Clock period override: $env:VIVADO_CLOCK_PERIOD_NS ns"
+}
 
 $tclScript = Join-Path $PSScriptRoot "vivado_build_arty_a7.tcl"
 $vivadoCommand = Get-Command vivado -ErrorAction Stop
@@ -48,6 +60,9 @@ $runnerArgs = @(
 )
 if ($SynthOnly) { $runnerArgs += "--synth-only" }
 if ($MultiExercise) { $runnerArgs += "--multi-exercise" }
+if ($ClockPeriodNs -gt 0.0) {
+    $runnerArgs += @("--clock-period-ns", $env:VIVADO_CLOCK_PERIOD_NS)
+}
 
 python @runnerArgs
 $ec = $LASTEXITCODE

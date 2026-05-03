@@ -1,32 +1,38 @@
-# Cursor workspace (`.cursor/`)
+# Cursor Workspace
 
-This folder holds **Cursor-specific** configuration. It is separate from RTL and from your project-facing notes in [`.user/`](../.user/README.md).
+This folder is AI/session memory. It is separate from the public root documentation and the user's `.user` project notes.
 
-## What lives where
+## Current Handoff
 
-| Path | Purpose |
+The FPGA QMC-LSM thesis kernel is complete. Root docs should be treated as the finished artifact:
+
+- `README.md`
+- `PROJECT_REPORT.md`
+
+Future sessions should start from:
+
+- `.user/FUTURE_PROJECT.md`
+- `.user/ROADMAP.md`
+- `.cursor/rules/primer.md`
+
+The next work is the portfolio/scenario/Greeks product story, not more vanilla kernel polish unless validation breaks.
+
+## Rule Files
+
+| File | Purpose |
 |------|---------|
-| [`.cursor/rules/`](rules/) | **Project rules** for the AI: identity, workflows, lessons learned, session handoff. Cursor loads these according to each file’s frontmatter (`alwaysApply`, `globs`, etc.). |
-| [`.user/`](../.user/README.md) | **Your** status, roadmap, and validation notes (implementation snapshot, what to run next). |
+| `rules/rules.md` | Permanent architecture, constraints, and project behavior |
+| `rules/primer.md` | Current session handoff |
+| `rules/hindsight.md` | Lessons learned from bugs and implementation traps |
+| `rules/log.md` | Long validation/incidence history |
+| `rules/obsidian_sync.md` | External note sync reminder |
+| `rules/verification_after_every_change.md` | Required verification behavior |
+| `rules/token_budget.mdc` | Agent efficiency guidance |
 
-Do not move rule files out of `rules/` unless you confirm Cursor still picks them up from a new path—**`.cursor/rules/`** is the usual layout.
+## Documentation Split
 
-## Rule files in `rules/` (quick map)
+- Root docs: completed thesis artifact.
+- `.user`: private continuation memory and roadmap.
+- `.cursor`: AI operating memory.
 
-| File | Role |
-|------|------|
-| `rules.md` | Permanent project identity, architecture, file map, design principles. |
-| `primer.md` | Short session handoff (what just finished, what’s next); rewrite after substantive milestones. |
-| `hindsight.md` | Behavioral lessons from past bugs (append-only). |
-| `log.md` | Long validation / incident history (append-only). |
-| `obsidian_sync.md` | When to mirror substantive work to your Obsidian vault. |
-| `verification_after_every_change.md` | Verification expectations after edits. |
-| `token_budget.mdc` | Token / tool-use efficiency for agents in this workspace. |
-
-To change **when** a rule applies, edit the YAML frontmatter at the top of that file (especially `globs` and `alwaysApply`).
-
-## For collaborators
-
-- **“Where is the project at?”** → [`.user/IMPLEMENTATION_STATUS.md`](../.user/IMPLEMENTATION_STATUS.md)  
-- **“What should we do next?”** → [`.user/ROADMAP.md`](../.user/ROADMAP.md)  
-- **“How do we verify?”** → [`.user/VALIDATION.md`](../.user/VALIDATION.md)
+Do not move project-facing validation docs into `.cursor`; keep them in `.user`.

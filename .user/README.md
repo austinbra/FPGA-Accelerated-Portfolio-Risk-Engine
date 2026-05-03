@@ -1,17 +1,23 @@
-# User notes
+# User Memory Index
 
-Tracked project memory (safe for a public repo):
+This folder is repo-local project memory.
 
-- [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) - what is implemented today
-- [`ROADMAP.md`](ROADMAP.md) - milestones and next steps (public-facing)
-- [`VALIDATION.md`](VALIDATION.md) - how to verify changes
-- [`ACCURACY.md`](ACCURACY.md) - financial accuracy study vs American reference
-- [`FPGA_BUILD.md`](FPGA_BUILD.md) - Vivado flows, virtual benchmark, optional on-board programming
-- [`FUTURE_PROJECT.md`](FUTURE_PROJECT.md) - post-v1 direction toward a portfolio/scenario/risk engine
-- [`OBSIDIAN_HANDOFF.md`](OBSIDIAN_HANDOFF.md) - dated checkpoint text to paste into Obsidian (vault lives outside the repo)
+Root `README.md` and `PROJECT_REPORT.md` present the completed thesis kernel. This `.user` folder tracks how to continue from here.
 
-**Not in Git (gitignored):** [`ROADMAP_PRIVATE.md`](ROADMAP_PRIVATE.md) - maintainer-only backlog (e.g. explicit silicon checklist). Create or edit that file locally; it will never be committed.
+Recommended reading order:
 
-Recommended reading order: `IMPLEMENTATION_STATUS.md` -> `ROADMAP.md` -> `VALIDATION.md` -> `FPGA_BUILD.md` when doing hardware.
+1. [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) - final state of the completed kernel.
+2. [`VALIDATION.md`](VALIDATION.md) - commands that must stay green.
+3. [`FPGA_BUILD.md`](FPGA_BUILD.md) - Vivado build and hardware run notes.
+4. [`ACCURACY.md`](ACCURACY.md) - bps accuracy methodology.
+5. [`ROADMAP.md`](ROADMAP.md) - what to build next.
+6. [`FUTURE_PROJECT.md`](FUTURE_PROJECT.md) - bigger portfolio/risk product story.
+7. [`OBSIDIAN_HANDOFF.md`](OBSIDIAN_HANDOFF.md) - copy-paste summary for external notes.
 
-Cursor / AI layout: [`.cursor/README.md`](../.cursor/README.md).
+`ROADMAP_PRIVATE.md` is intentionally local/gitignored if present.
+
+Current rule of thumb:
+
+- Root docs: completed thesis artifact.
+- `.user`: continuation plan and internal memory.
+- `.cursor`: AI/session handoff and behavioral rules.

@@ -100,7 +100,7 @@ module GBM #(
     logic [WIDTH-1:0] s_align_pop  [0:0];
     logic              s_fifo_full, s_fifo_empty;
     assign s_align_push[0] = pipe_S;
-    event_align_fifo_arr #(.N(1), .DW(WIDTH), .DEPTH(4)) u_s_align (
+    event_align_fifo_arr #(.N(1), .DW(WIDTH), .DEPTH(16)) u_s_align (
         .clk(clk), .rst_n(rst_n),
         .push_en  (mul1_accept),
         .pop_en   (exp_vout && mul2_rout),
