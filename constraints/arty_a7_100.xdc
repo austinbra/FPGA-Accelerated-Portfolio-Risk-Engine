@@ -3,9 +3,6 @@
 ## Pins verified against the Digilent master XDC (2024-03 revision). If your board revision
 ## differs, update these pin assignments from your local Digilent master.
 
-if {![info exists ::A7_SYS_CLK_PERIOD_NS]} {
-    set ::A7_SYS_CLK_PERIOD_NS 12.000
-}
 set ::A7_SYS_CLK_HALF_PERIOD_NS [expr {$::A7_SYS_CLK_PERIOD_NS / 2.0}]
 
 set_property -dict { PACKAGE_PIN E3 IOSTANDARD LVCMOS33 } [get_ports CLK100MHZ]

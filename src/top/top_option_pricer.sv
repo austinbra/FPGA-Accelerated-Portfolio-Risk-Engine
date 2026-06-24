@@ -1105,16 +1105,12 @@ module top_mc_option_pricer #(
 );
     generate
         if (MULTI_EXERCISE) begin : gen_multi_exercise
-            initial begin
-                assert (NUM_LANES == 1)
-                    else $fatal(1, "MULTI_EXERCISE RTL v1 supports NUM_LANES=1 only");
-            end
-
-            top_mc_option_pricer_multi #(
+            top_mc_option_pricer_multi_stored #(
                 .CLK_FREQ_HZ     (CLK_FREQ_HZ),
                 .BAUD_RATE       (BAUD_RATE),
                 .CORE_MAX_CYCLES (MULTI_CORE_MAX_CYCLES),
-                .MAX_STEPS       (MAX_STEPS)
+                .MAX_STEPS       (MAX_STEPS),
+                .NUM_LANES       (NUM_LANES)
             ) u_multi (
                 .clk_100   (clk_100),
                 .rst_btn_n (rst_btn_n),

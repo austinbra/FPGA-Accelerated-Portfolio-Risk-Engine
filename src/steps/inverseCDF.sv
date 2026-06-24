@@ -31,6 +31,7 @@ module inverseCDF #(
 
     logic [WIDTH-1:0] x;
     logic negate;
+    logic       neg_fifo_full, neg_fifo_empty;
     // ln(x) is negative on (0,1); fxlnLUT port is unsigned — reinterpret bits.
     logic [WIDTH-1:0]          ln_raw;
     logic signed [WIDTH-1:0] ln_x;
@@ -48,7 +49,7 @@ module inverseCDF #(
         .rst_n(rst_n),
         .valid_in(valid_in),
         .valid_out(v1),
-        .ready_in(ln_ready),
+        .ready_in(ln_ready && !neg_fifo_full),
         .ready_out(fold_ready),
         .u(u_in),
         .x(x),
@@ -59,7 +60,7 @@ module inverseCDF #(
     fxlnLUT #() loglut (
         .clk(clk),
         .rst_n(rst_n),
-        .valid_in(v1),
+        .valid_in(v1 && !neg_fifo_full),
         .valid_out(v2a),
         .ready_in(mul_ready),
         .ready_out(ln_ready),
@@ -96,13 +97,11 @@ module inverseCDF #(
     // Keeps the negate flag in sync with data flowing through ln -> mul -> sqrt.
     logic [0:0] neg_push [0:0];
     logic [0:0] neg_pop  [0:0];
-    logic       neg_fifo_full, neg_fifo_empty;
-
     assign neg_push[0] = negate;
 
     // One push per fold→ln transfer (not level on v1): while v1 is held during
     // downstream back-pressure, v1 alone would push duplicates into the FIFO.
-    wire fold_to_ln_fire = v1 && ln_ready;
+    wire fold_to_ln_fire = v1 && ln_ready && !neg_fifo_full;
 
     event_align_fifo_arr #(.N(1), .DW(1), .DEPTH(4)) u_negate_align (
         .clk       (clk),

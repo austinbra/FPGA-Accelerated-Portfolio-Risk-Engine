@@ -27,6 +27,18 @@ if {[info exists ::env(VIVADO_MULTI_EXERCISE)] && ($::env(VIVADO_MULTI_EXERCISE)
     set multi_exercise 1
     puts "INFO: VIVADO_MULTI_EXERCISE=1 - building multi-exercise top variant."
 }
+
+set num_lanes 1
+if {[info exists ::env(VIVADO_NUM_LANES)] && ($::env(VIVADO_NUM_LANES) ne "")} {
+    set num_lanes $::env(VIVADO_NUM_LANES)
+}
+if {[lsearch -exact {1 2 4 8} $num_lanes] < 0} {
+    puts "ERROR: VIVADO_NUM_LANES must be one of 1, 2, 4, or 8 (got $num_lanes)."
+    exit 1
+}
+if {$multi_exercise} {
+    puts "INFO: multi-date path/regression lanes = $num_lanes"
+}
 foreach arg $argv {
     if {$arg eq "--multi-exercise"} {
         set multi_exercise 1
@@ -49,10 +61,13 @@ for {set i 0} {$i < [llength $argv]} {incr i} {
 if {$clock_period_ns ne ""} {
     set ::S7_SYS_CLK_PERIOD_NS $clock_period_ns
     puts "INFO: S7 sys_clk period override = $::S7_SYS_CLK_PERIOD_NS ns"
+} else {
+    set ::S7_SYS_CLK_PERIOD_NS 10.000
+    puts "INFO: S7 sys_clk period default = $::S7_SYS_CLK_PERIOD_NS ns"
 }
 
 if {$multi_exercise} {
-    set build_dir [file join $repo_root vivado_build arty_s7_50_multi]
+    set build_dir [file join $repo_root vivado_build "arty_s7_50_multi_lanes${num_lanes}"]
 } else {
     set build_dir [file join $repo_root vivado_build arty_s7_50]
 }
@@ -61,6 +76,12 @@ if {$clock_period_ns ne ""} {
     set build_dir "${build_dir}_${clock_tag}ns"
 }
 file mkdir $build_dir
+foreach stale_name {arty_s7_qmc.bit arty_s7_qmc_multi.bit timing_post_route.rpt utilization.rpt drc_post_route.rpt route_status.rpt} {
+    set stale_path [file join $build_dir $stale_name]
+    if {[file exists $stale_path]} {
+        file delete -force $stale_path
+    }
+}
 
 set repo_slash [string map {\\ /} $repo_root]
 set gen_dir [file join $build_dir generated]
@@ -133,6 +154,7 @@ set rtl [list \
     [file join $repo_root src io uart uart_tx32.sv] \
     [file join $repo_root src io handlers uart_input_handler.sv] \
     [file join $repo_root src top top_option_pricer_multi.sv] \
+    [file join $repo_root src top top_option_pricer_multi_stored.sv] \
     [file join $repo_root src top top_option_pricer.sv] \
     [file join $repo_root fpga arty_s7_option_pricer_top.sv] \
 ]
@@ -153,7 +175,7 @@ add_files -fileset constrs_1 -norecurse [file join $repo_root constraints arty_s
 
 set_property top arty_s7_option_pricer_top [get_filesets sources_1]
 if {$multi_exercise} {
-    set top_generics {MULTI_EXERCISE=1 MULTI_CORE_MAX_CYCLES=1000000000}
+    set top_generics [list MULTI_EXERCISE=1 NUM_LANES=$num_lanes MULTI_CORE_MAX_CYCLES=1000000000]
     set_property generic $top_generics [get_filesets sources_1]
     puts "INFO: top generics = $top_generics"
 }
@@ -163,7 +185,15 @@ puts "INFO: Running in-process synth_design."
 puts "INFO: Synthesizing divider IP in-process for direct synth_design."
 synth_ip [get_ips fxDiv_core]
 if {$multi_exercise} {
-    synth_design -top arty_s7_option_pricer_top -part xc7s50csga324-1 -generic {MULTI_EXERCISE=1 MULTI_CORE_MAX_CYCLES=1000000000}
+    if {$num_lanes > 1} {
+        # The two-lane stored-path core is close to the S7-50 LUT ceiling.
+        # Ask synthesis to compact area before declaring that configuration
+        # infeasible; functional arithmetic and pipeline latency are unchanged.
+        synth_design -top arty_s7_option_pricer_top -part xc7s50csga324-1 \
+            -generic $top_generics -directive AreaOptimized_high
+    } else {
+        synth_design -top arty_s7_option_pricer_top -part xc7s50csga324-1 -generic $top_generics
+    }
 } else {
     synth_design -top arty_s7_option_pricer_top -part xc7s50csga324-1
 }
@@ -177,7 +207,11 @@ if {$synth_only} {
 }
 
 puts "INFO: Running in-process implementation."
-opt_design
+if {$multi_exercise && $num_lanes > 1} {
+    opt_design -directive ExploreWithRemap
+} else {
+    opt_design
+}
 write_checkpoint -force [file join $build_dir opt.dcp]
 
 place_design
@@ -192,6 +226,16 @@ report_route_status -file [file join $build_dir route_status.rpt]
 report_timing_summary -file [file join $build_dir timing_post_route.rpt] -max_paths 20
 report_utilization -file [file join $build_dir utilization.rpt]
 report_drc -file [file join $build_dir drc_post_route.rpt]
+
+set worst_setup_path [get_timing_paths -delay_type max -max_paths 1]
+if {[llength $worst_setup_path] > 0} {
+    set routed_wns [get_property SLACK [lindex $worst_setup_path 0]]
+    puts "INFO: post-route setup WNS = $routed_wns ns"
+    if {$routed_wns < 0.0} {
+        puts "ERROR: post-route setup timing failed (WNS=$routed_wns ns); bitstream suppressed."
+        exit 1
+    }
+}
 
 if {$multi_exercise} {
     set bit_dst [file join $build_dir arty_s7_qmc_multi.bit]

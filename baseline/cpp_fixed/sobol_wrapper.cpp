@@ -86,6 +86,11 @@ SobolGenerator::SobolGenerator(int dimension, std::uint32_t skip, const std::str
     }
 }
 
+void SobolGenerator::reset(std::uint32_t skip) {
+    skip_ = skip;
+    pointIndex_ = 0;
+}
+
 uint32_t SobolGenerator::sobolRaw(uint32_t index, int dimension) const {
     if (dimension < 0 || dimension >= dim_) {
         throw std::runtime_error("Sobol dimension out of range");

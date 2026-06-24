@@ -62,9 +62,13 @@ Desktop.ini
 *.log
 *.tmp
 *.temp
+.tmp/
 data/*.csv
 data/*.json
 logging/
+
+# Stray timing-diagnostic dumps from Vivado closure work
+tight_setup_hold_pins.txt
 
 # Vivado project outputs
 vivado_build/

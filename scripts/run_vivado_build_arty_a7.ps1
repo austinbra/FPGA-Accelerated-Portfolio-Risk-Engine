@@ -1,6 +1,7 @@
 param(
     [switch]$SynthOnly,
     [switch]$MultiExercise,
+    [ValidateSet(1, 2, 4, 8)][int]$NumLanes = 1,
     [double]$ClockPeriodNs = 0.0,
     [int]$TimeoutSeconds = 14400
 )
@@ -17,9 +18,11 @@ if ($SynthOnly) {
 
 if ($MultiExercise) {
     $env:VIVADO_MULTI_EXERCISE = "1"
-    $buildDir = Join-Path $repo "vivado_build\arty_a7_100_multi"
+    $env:VIVADO_NUM_LANES = "$NumLanes"
+    $buildDir = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes$NumLanes"
 } else {
     Remove-Item Env:VIVADO_MULTI_EXERCISE -ErrorAction SilentlyContinue
+    Remove-Item Env:VIVADO_NUM_LANES -ErrorAction SilentlyContinue
     $buildDir = Join-Path $repo "vivado_build\arty_a7_100"
 }
 
@@ -33,7 +36,7 @@ if ($ClockPeriodNs -gt 0.0) {
 
 Write-Host "Running Vivado batch for Arty A7-100T (repo: $repo) ..."
 if ($MultiExercise) {
-    Write-Host "Mode: MULTI_EXERCISE=1"
+    Write-Host "Mode: MULTI_EXERCISE=1, NUM_LANES=$NumLanes"
 } else {
     Write-Host "Mode: single-date default"
 }
@@ -46,7 +49,7 @@ $tclScript = Join-Path $PSScriptRoot "vivado_build_arty_a7.tcl"
 $vivadoCommand = Get-Command vivado -ErrorAction Stop
 $vivadoPath = $vivadoCommand.Source
 $runner = Join-Path $PSScriptRoot "vivado_build_runner.py"
-$logName = if ($MultiExercise) { "vivado_arty_a7_multi" } else { "vivado_arty_a7" }
+$logName = if ($MultiExercise) { "vivado_arty_a7_multi_lanes$NumLanes" } else { "vivado_arty_a7" }
 if ($SynthOnly) { $logName += "_synth" } else { $logName += "_impl" }
 $logFile = Join-Path $repo ".tmp\$logName.log"
 

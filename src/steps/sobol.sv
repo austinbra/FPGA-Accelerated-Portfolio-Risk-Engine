@@ -77,7 +77,7 @@ module sobol #(
             buffer_data <= '0;
         end else begin
             // Use case statement to handle all combinations explicitly
-            case ({valid_in && ready_out, buffer_valid && ready_in})
+            unique case ({valid_in && ready_out, buffer_valid && ready_in})
                 2'b00: begin
                     // No input, no output - no change
                 end

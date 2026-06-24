@@ -7,13 +7,14 @@ param(
     [int]$XsimTimeoutSeconds = 600,
     [switch]$ComputeMode,
     [switch]$Multibatch,  # Run tb_top_option_pricer_uart_multibatch (2 batches, compute mode)
-    [switch]$MultiExercise,  # Run single-lane multi-exercise-date RTL wrapper
+    [switch]$MultiExercise,  # Run stored-path multi-exercise RTL (lane count selected below)
+    [switch]$SkipCompile,    # Reuse an existing xelab snapshot (fast benchmark sweeps)
     [switch]$NoCleanup,
     [switch]$DebugAcc,   # -d ACC_DEBUG for accumulator stall diagnosis
     [switch]$DebugFsm,   # -d TOP_FSM_DEBUG for FSM state tracing
     [switch]$DebugReg,   # -d REG_DEBUG for regression pipeline tracing
     [switch]$DebugNum,   # -d TOP_NUM_DEBUG for numerical comparison tracing
-    [int]$NumLanes = 1,  # 1 = default; 2/3/4/8 select lane wrappers (see .user/VALIDATION.md)
+    [int]$NumLanes = 1,  # Multi-date: 1/2/4/8; legacy single-date also has 3 lanes
     [string]$TestPlusargs = "",  # comma-separated form for Python/native callers
     [string[]]$TestPlusarg = @()  # e.g. paths=64 steps=12 S0=6553600 ... passed to xsim -testplusarg
 )
@@ -116,6 +117,7 @@ $sources = @(
     "src/io/uart/uart_tx32.sv",
     "src/io/handlers/uart_input_handler.sv",
     "src/top/top_option_pricer_multi.sv",
+    "src/top/top_option_pricer_multi_stored.sv",
     "src/top/top_option_pricer.sv",
     "tb/tb_top_option_pricer_uart.sv"
 )
@@ -126,16 +128,29 @@ if ($DebugFsm) { $baseArgs += "-d"; $baseArgs += "TOP_FSM_DEBUG" }
 if ($DebugReg) { $baseArgs += "-d"; $baseArgs += "REG_DEBUG" }
 if ($DebugNum) { $baseArgs += "-d"; $baseArgs += "TOP_NUM_DEBUG" }
 
-# Single xvlog invocation (batched mode caused timeouts on heavy LUT modules)
-Write-Host "xvlog ($($sources.Count) files)"
-Invoke-ToolWithTimeout -Exe $XvlogExe -CmdArgs ($baseArgs + $sources) -TimeoutSec $XvlogTimeoutSeconds
+if (-not $SkipCompile) {
+    # Single xvlog invocation (batched mode caused timeouts on heavy LUT modules)
+    Write-Host "xvlog ($($sources.Count) files)"
+    Invoke-ToolWithTimeout -Exe $XvlogExe -CmdArgs ($baseArgs + $sources) -TimeoutSec $XvlogTimeoutSeconds
+}
 
 if ($Multibatch) {
     $top = "work.tb_top_option_pricer_uart_multibatch"
     $snap = "tb_top_option_pricer_uart_multibatch_sim"
 } elseif ($MultiExercise) {
-    $top = "work.tb_top_option_pricer_uart_compute_multi"
-    $snap = "tb_top_option_pricer_uart_compute_multi_sim"
+    if ($NumLanes -eq 2) {
+        $top = "work.tb_top_option_pricer_uart_compute_multi_lanes2"
+        $snap = "tb_top_option_pricer_uart_compute_multi_lanes2_sim"
+    } elseif ($NumLanes -eq 4) {
+        $top = "work.tb_top_option_pricer_uart_compute_multi_lanes4"
+        $snap = "tb_top_option_pricer_uart_compute_multi_lanes4_sim"
+    } elseif ($NumLanes -eq 8) {
+        $top = "work.tb_top_option_pricer_uart_compute_multi_lanes8"
+        $snap = "tb_top_option_pricer_uart_compute_multi_lanes8_sim"
+    } else {
+        $top = "work.tb_top_option_pricer_uart_compute_multi"
+        $snap = "tb_top_option_pricer_uart_compute_multi_sim"
+    }
 } elseif ($ComputeMode) {
     if ($NumLanes -eq 2) {
         $top = "work.tb_top_option_pricer_uart_compute_lanes2"
@@ -158,7 +173,11 @@ if ($Multibatch) {
     $snap = "tb_top_option_pricer_uart_sim"
 }
 
-Invoke-ToolWithTimeout -Exe $XelabExe -CmdArgs @("-nolog", $top, "-debug", "typical", "-s", $snap, "--mt", "off") -TimeoutSec $XelabTimeoutSeconds
+if (-not $SkipCompile) {
+    Invoke-ToolWithTimeout -Exe $XelabExe -CmdArgs @("-nolog", $top, "-debug", "typical", "-s", $snap, "--mt", "off") -TimeoutSec $XelabTimeoutSeconds
+} else {
+    Write-Host "Reusing xelab snapshot: $snap"
+}
 
 $xsimArgs = @("-nolog", $snap, "-runall", "-onfinish", "quit")
 # One -testplusarg per KEY=value (no spaces inside values). Joining into one string breaks

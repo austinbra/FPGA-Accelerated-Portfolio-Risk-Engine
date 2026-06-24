@@ -5,6 +5,7 @@ timeprecision 1ps;
 
 module arty_s7_option_pricer_top #(
     parameter bit MULTI_EXERCISE = 1'b0,
+    parameter int unsigned NUM_LANES = 1,
     parameter int unsigned MULTI_CORE_MAX_CYCLES = 32'd1_000_000_000
 )(
     input  logic CLK100MHZ,
@@ -17,6 +18,7 @@ module arty_s7_option_pricer_top #(
 
     top_mc_option_pricer #(
         .MULTI_EXERCISE(MULTI_EXERCISE),
+        .NUM_LANES(NUM_LANES),
         .MULTI_CORE_MAX_CYCLES(MULTI_CORE_MAX_CYCLES)
     ) u_top (
         .clk_100   (CLK100MHZ),

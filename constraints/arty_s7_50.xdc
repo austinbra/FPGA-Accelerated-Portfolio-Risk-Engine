@@ -1,9 +1,6 @@
 ## Arty S7-50 (Rev. E master constraints pattern) — QMC-LSM top: arty_s7_option_pricer_top
 ## Reference: https://github.com/Digilent/digilent-xdc/blob/master/Arty-S7-50-Master.xdc
 
-if {![info exists ::S7_SYS_CLK_PERIOD_NS]} {
-    set ::S7_SYS_CLK_PERIOD_NS 10.000
-}
 set ::S7_SYS_CLK_HALF_PERIOD_NS [expr {$::S7_SYS_CLK_PERIOD_NS / 2.0}]
 
 set_property -dict { PACKAGE_PIN R2 IOSTANDARD SSTL135 } [get_ports CLK100MHZ]

@@ -204,11 +204,24 @@ module fxInvCDF_ZS #(
     // Divide numerator by denominator
     logic v4;
     logic [WIDTH-1:0] ratio;
+    logic div_launched;
+    wire div_valid_in = num_valid && den_valid && !div_launched;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            div_launched <= 1'b0;
+        end else begin
+            if (launch)
+                div_launched <= 1'b0;
+            if (div_valid_in && div_nd_ready)
+                div_launched <= 1'b1;
+        end
+    end
 
     fxDiv #() div_nd (
         .clk        (clk),
         .rst_n      (rst_n),
-        .valid_in   (num_valid && den_valid),
+        .valid_in   (div_valid_in),
         .valid_out  (v4),
         .ready_in   (ready_in),
         .ready_out  (div_nd_ready),

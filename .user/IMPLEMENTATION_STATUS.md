@@ -1,6 +1,6 @@
 # Implementation Status
 
-Last updated: 2026-05-03
+Last updated: 2026-06-24
 
 ## Current State
 
@@ -15,7 +15,8 @@ Implemented foundation:
 - financial accuracy studies versus an in-repo American CRR reference,
 - regression health metrics,
 - UART host flow,
-- 100 MHz routed bitstreams for Arty A7-100T and Arty S7-50.
+- stored-path, banked, multi-lane multi-date engine (v2),
+- routed bitstreams: A7-100T 4-lane and S7-50 1-lane at 100 MHz, S7-50 2-lane at 95.24 MHz.
 
 Not implemented yet:
 
@@ -28,7 +29,37 @@ Not implemented yet:
 
 Root docs should be read as the fork's product-facing artifact. `.user` and `.ai` guide the next phase.
 
-## Kernel Foundation Result
+## Active Stored-Path v2 Board Result
+
+These are the current active engine (`top_mc_option_pricer_multi_stored`) routed
+results. They are the headline board deliverable for this phase.
+
+| Target / config | Part | Clock | Timing | Utilization summary | Bitstream |
+|-----------------|------|-------|--------|---------------------|-----------|
+| Arty A7-100T, 4 lanes | XC7A100T | 100 MHz / 10 ns | WNS `+0.144 ns`, TNS `0`, 0 failing endpoints | 45,875 LUTs, 46,911 regs, 180 DSP, 66 RAMB36 | `vivado_build/arty_a7_100_multi_lanes4_10ns/arty_a7_qmc_multi.bit` |
+| Arty S7-50, 1 lane | XC7S50 | 100 MHz / 10 ns | WNS `+0.310 ns`, TNS `0`, 0 failing endpoints | 23,399 LUTs, 28,967 regs, 84 DSP, 65 RAMB36 | `vivado_build/arty_s7_50_multi_lanes1_10ns/arty_s7_qmc_multi.bit` |
+| Arty S7-50, 2 lanes | XC7S50 | 95.24 MHz / 10.5 ns | WNS `+0.083 ns`, TNS `0`, 0 failing endpoints | 30,606 LUTs, 34,855 regs, 116 DSP, 65 RAMB36 | `vivado_build/arty_s7_50_multi_lanes2_10p5ns/arty_s7_qmc_multi.bit` |
+
+Resource percentages:
+
+| Target / config | LUT | Register | DSP | BRAM |
+|-----------------|-----|----------|-----|------|
+| A7-100T, 4 lanes | 72.36% | 37.00% | 75.00% | 48.89% |
+| S7-50, 1 lane | 71.78% | 44.43% | 70.00% | 86.67% |
+| S7-50, 2 lanes | 93.88% | 53.46% | 96.67% | 86.67% |
+
+The A7-100T four-lane build meets 100 MHz with positive slack. The S7-50 ceiling
+at 100 MHz is one lane; the S7-50 two-lane configuration fits physically but does
+not close at 100 MHz (it misses by `-0.180 ns`), so it is published at its honest
+closing clock of 95.24 MHz (10.5 ns, WNS `+0.083 ns`), where the 1,024x12
+compute window is 4.322 ms, rather than claimed at 100 MHz. Eight lanes is
+simulation-only (91,092 LUTs, 143.68% of the A7-100T) and does not fit any
+evaluated board.
+
+## Historical v1 Single-Lane Foundation Result
+
+These are the preserved regeneration-based v1 builds (single lane). They remain in
+the repository as a historical reference and are not the active deliverable.
 
 | Target | Part | Clock | Timing | Utilization summary | Bitstream |
 |--------|------|-------|--------|---------------------|-----------|
@@ -42,8 +73,6 @@ Resource percentages:
 | A7-100T | 36.54% | 21.98% | 33.33% | 11.85% |
 | S7-50 | 71.02% | 42.75% | 66.67% | 21.33% |
 
-The actual post-route timing margin implies the design is a clean 100 MHz design, not a proven 110+ MHz design. The next tighter-clock characterization would sweep 9.8 ns, 9.6 ns, and 9.4 ns.
-
 ## Price Parity Snapshot
 
 | Case | C++ Q16.16 | RTL Q16.16 | Delta | Core cycles |
@@ -55,6 +84,17 @@ The actual post-route timing margin implies the design is a clean 100 MHz design
 | Multi-date CALL, N=64, M=12 | 482,546 | 482,546 | 0 LSB | 37,726 |
 
 At 100 MHz, the core-only multi-date PUT times above are 4.612 ms, 18.432 ms, and 73.709 ms for N=64, 256, and 1024 respectively.
+
+Those rows are the preserved v1 regeneration baseline. The active stored-path
+v2 engine is bit-exact at N=1024/M=12 and takes 720,474 / 411,626 / 236,362 /
+121,290 cycles for 1 / 2 / 4 / 8 lanes (7.205 / 4.116 / 2.364 / 1.213 ms at
+100 MHz). Four lanes routes at 100 MHz on the A7-100T with WNS `+0.144 ns`,
+using 45,875 LUTs, 46,911 registers, 180 DSPs, and 66 RAMB36; eight lanes does
+not fit its LUT capacity (91,092 LUTs, 143.68%). The routed four-lane A7 kernel
+is 1.27x to 1.84x slower than the optimized i9-13905H C++ mirror depending on the
+timed boundary, so this phase does not claim a CPU speedup for the physical
+board. Full details and the CPU benchmark methodology are in
+`.user/PERFORMANCE_MATRIX.md` and `.user/VALIDATION.md`.
 
 ## What Is Implemented
 
@@ -69,7 +109,8 @@ At 100 MHz, the core-only multi-date PUT times above are 4.612 ms, 18.432 ms, an
 | Regression accumulator and Gaussian solve | Complete |
 | Mean fallback and beta-cap fallback | Complete |
 | Single-date LSM | Complete |
-| Multi-date LSM RTL v1 | Complete |
+| Stored-path, banked, multi-lane LSM RTL v2 | Complete |
+| Step-major independent-path interleaving | Complete |
 | No-dividend CALL terminal fast path | Complete |
 | UART parameter/result packet | Complete |
 | C++ FPGA-style mirror | Complete |
@@ -87,8 +128,8 @@ At 100 MHz, the core-only multi-date PUT times above are 4.612 ms, 18.432 ms, an
 - Treat the existing kernel as the stable foundation.
 - Keep `.user/FUTURE_PROJECT.md` and `.user/ROADMAP.md` as the product scope source of truth.
 - Default single-date behavior remains available for historical parity, but the product foundation is multi-date.
-- Multi-date v1 is intentionally `NUM_LANES=1`.
-- Do not add path batching just because it was once an original idea. Current BRAM use is low; batching should be driven by portfolio scheduling, larger `M`, larger path counts, UART throughput, or a smaller board target.
+- The active multi-date engine supports `NUM_LANES=1/2/4/8`; four lanes is the maximum synthesized A7-100T fit and eight lanes is simulation-only on that target.
+- The current stored-path capacity is 1,024 paths by 50 dates. Add BRAM-sized batching when a workload must exceed that capacity.
 - Do not add variance reduction by default. Add it only if it reduces path count enough to matter for portfolio/scenario latency.
 - Do not call the product "sentiment-driven options pricer." The stronger identity is a hardware-accelerated scenario pricing and Greeks engine for complex derivatives.
 

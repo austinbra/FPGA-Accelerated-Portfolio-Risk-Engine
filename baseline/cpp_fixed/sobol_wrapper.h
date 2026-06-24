@@ -17,6 +17,7 @@ public:
     SobolGenerator(int dimension, std::uint32_t skip = 0, const std::string& directionFile = "");
     std::vector<SobolSample> nextPointDetailed();
     std::vector<Real> nextPoint();
+    void reset(std::uint32_t skip = 0);
     uint32_t sobolRaw(uint32_t index, int dimension) const;
     static int32_t q16FromRaw(uint32_t raw);
 

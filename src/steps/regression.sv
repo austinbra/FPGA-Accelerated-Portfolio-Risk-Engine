@@ -785,7 +785,12 @@ end
         if (!rst_n) begin
             singular_sticky_prev <= 1'b0;
         end else begin
-            singular_sticky_prev <= singular_err && !(skid_m_valid && skid_m_ready);
+            // A committed normal/fallback result is the defined end of the
+            // solve, so clearing singular_err on that edge is legal.
+            singular_sticky_prev <= singular_err &&
+                !(skid_m_valid && skid_m_ready) &&
+                !((v7c && !singular_err && ready_in) ||
+                  (mean_valid && ready_in));
             if (singular_sticky_prev)
             assert (singular_err)
                 else $error("Regression: singular_err not sticky within solve");

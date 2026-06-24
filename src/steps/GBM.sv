@@ -28,7 +28,7 @@ module GBM #(
     // -------------------------------------------------------------------------
     // Inter-stage handshake signals (declared first to avoid forward references)
     // -------------------------------------------------------------------------
-    logic                    mul1_vin, mul1_vout, mul1_rin, mul1_rout;
+    logic                    mul1_vout, mul1_rin, mul1_rout;
     logic signed [WIDTH-1:0] mul1_result;
     logic                    mul1_accept;
 
@@ -40,66 +40,29 @@ module GBM #(
     logic signed [WIDTH-1:0] mul2_result;
 
     // -------------------------------------------------------------------------
-    // Input skid buffer (decouple from inverseCDF backpressure)
-    // -------------------------------------------------------------------------
-    logic                    skid_valid;
-    logic signed [WIDTH-1:0] skid_z, skid_S;
-
-    logic                    pipe_valid;
-    logic signed [WIDTH-1:0] pipe_z, pipe_S;
-
-    logic pipe_can_push;
-    assign pipe_can_push = mul1_rout;
-
-    assign ready_out = !skid_valid || pipe_can_push;
-
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            skid_valid <= 1'b0;
-            skid_z     <= '0;
-            skid_S     <= '0;
-        end else begin
-            if (pipe_valid && pipe_can_push)
-                skid_valid <= 1'b0;
-            if (valid_in && ready_out && !pipe_can_push) begin
-                skid_valid <= 1'b1;
-                skid_z     <= z;
-                skid_S     <= S;
-            end else if (valid_in && ready_out && pipe_can_push && skid_valid) begin
-                skid_z <= z;
-                skid_S <= S;
-            end
-        end
-    end
-
-    assign pipe_z     = skid_valid ? skid_z : z;
-    assign pipe_S     = skid_valid ? skid_S : S;
-    assign pipe_valid = skid_valid || valid_in;
-
-    // -------------------------------------------------------------------------
     // Stage 1: MUL1 = vol_sqrt_dt * z
     // -------------------------------------------------------------------------
+    assign ready_out = mul1_rout;
     assign mul1_rin = exp_rout;
 
     fxMul #(.LATENCY(fpga_cfg_pkg::FP_MUL_LATENCY)) u_mul1 (
         .clk(clk), .rst_n(rst_n),
-        .valid_in (mul1_vin),
+        .valid_in (valid_in),
         .ready_out(mul1_rout),
         .valid_out(mul1_vout),
         .ready_in (mul1_rin),
         .a(vol_sqrt_dt),
-        .b(pipe_z),
+        .b(z),
         .result(mul1_result)
     );
 
-    assign mul1_accept = pipe_valid && mul1_rout;
-    assign mul1_vin    = mul1_accept;
+    assign mul1_accept = valid_in && ready_out;
 
     // S alignment FIFO: push on mul1_accept, pop on exp_vout && mul2_rout
     logic [WIDTH-1:0] s_align_push [0:0];
     logic [WIDTH-1:0] s_align_pop  [0:0];
     logic              s_fifo_full, s_fifo_empty;
-    assign s_align_push[0] = pipe_S;
+    assign s_align_push[0] = S;
     event_align_fifo_arr #(.N(1), .DW(WIDTH), .DEPTH(16)) u_s_align (
         .clk(clk), .rst_n(rst_n),
         .push_en  (mul1_accept),

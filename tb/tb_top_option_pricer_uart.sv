@@ -173,6 +173,8 @@ module tb_top_option_pricer_uart_core #(
         int unsigned v_steps;
         logic [31:0] v_s0, v_k, v_r, v_sig, v_t;
         int unsigned v_opt;
+        int unsigned v_expected_price;
+        int has_expected_price;
         logic [63:0] cyc64;
         int _pu;
         begin
@@ -198,6 +200,7 @@ module tb_top_option_pricer_uart_core #(
             _pu = $value$plusargs("sigma=%d", v_sig);
             _pu = $value$plusargs("T=%d", v_t);
             _pu = $value$plusargs("opt=%d", v_opt);
+            has_expected_price = $value$plusargs("expected_price=%d", v_expected_price);
 
             params[0] = v_paths;
             params[1] = v_steps;
@@ -250,6 +253,13 @@ module tb_top_option_pricer_uart_core #(
                 errors++;
             end
 
+            if (!EXPECT_TIMEOUT && has_expected_price &&
+                result_words[1] !== v_expected_price[31:0]) begin
+                $display("Batch %0d exact price mismatch: expected=0x%08h got=0x%08h",
+                         batch_idx, v_expected_price[31:0], result_words[1]);
+                errors++;
+            end
+
             if (!EXPECT_TIMEOUT && result_words[1] != 32'hDEAD0001) begin
                 // Q16.16 sanity: an ATM vanilla option with S0=K=100 should price in [0.1, 50.0]
                 // i.e. raw value in [0x0000_1999, 0x0032_0000]
@@ -257,6 +267,7 @@ module tb_top_option_pricer_uart_core #(
                     $display("Batch %0d price out of plausible range: 0x%08h (Q16.16 = %0d.%0d)",
                              batch_idx, result_words[1],
                              result_words[1][31:16], result_words[1][15:0]);
+                    errors++;
                 end else begin
                     $display("Batch %0d price = 0x%08h (Q16.16 ~ %0d)", batch_idx, result_words[1],
                              result_words[1] >>> 16);
@@ -409,6 +420,27 @@ module tb_top_option_pricer_uart_compute_multi;
         .EXPECT_TIMEOUT(1'b0),
         .NUM_LANES(1),
         .MULTI_EXERCISE(1'b1),
+        .TB_GLOBAL_MAX_CYCLES(1_500_000_000)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+module tb_top_option_pricer_uart_compute_multi_lanes2;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0), .NUM_LANES(2), .MULTI_EXERCISE(1'b1),
+        .TB_GLOBAL_MAX_CYCLES(1_500_000_000)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+module tb_top_option_pricer_uart_compute_multi_lanes4;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0), .NUM_LANES(4), .MULTI_EXERCISE(1'b1),
+        .TB_GLOBAL_MAX_CYCLES(1_500_000_000)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+module tb_top_option_pricer_uart_compute_multi_lanes8;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0), .NUM_LANES(8), .MULTI_EXERCISE(1'b1),
         .TB_GLOBAL_MAX_CYCLES(1_500_000_000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule

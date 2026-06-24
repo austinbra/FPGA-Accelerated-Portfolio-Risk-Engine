@@ -52,19 +52,28 @@ The inherited kernel is complete and should remain the regression baseline while
 
 ## FPGA Kernel Result
 
-The multi-exercise-date RTL build is timing-clean at 100 MHz on both supported thesis boards.
+The active stored-path multi-date RTL is timing-clean at 100 MHz on both
+supported boards. The larger A7-100T fits four lanes; the S7-50 timing-clean
+100 MHz bitstream uses one lane, and a denser two-lane S7-50 bitstream closes at
+95.24 MHz.
 
 | Target | Part | Clock | WNS | TNS | Failing endpoints | Bitstream |
 |--------|------|-------|-----|-----|-------------------|-----------|
-| Arty A7-100T | XC7A100T | 100 MHz / 10 ns | +0.153 ns | 0.000 ns | 0 | `vivado_build/arty_a7_100_multi_10ns/arty_a7_qmc_multi.bit` |
-| Arty S7-50 | XC7S50 | 100 MHz / 10 ns | +0.113 ns | 0.000 ns | 0 | `vivado_build/arty_s7_50_multi_10ns/arty_s7_qmc_multi.bit` |
+| Arty A7-100T, 4 lanes | XC7A100T | 100 MHz / 10 ns | +0.144 ns | 0.000 ns | 0 | `vivado_build/arty_a7_100_multi_lanes4_10ns/arty_a7_qmc_multi.bit` |
+| Arty S7-50, 1 lane | XC7S50 | 100 MHz / 10 ns | +0.310 ns | 0.000 ns | 0 | `vivado_build/arty_s7_50_multi_lanes1_10ns/arty_s7_qmc_multi.bit` |
+| Arty S7-50, 2 lanes | XC7S50 | 95.24 MHz / 10.5 ns | +0.083 ns | 0.000 ns | 0 | `vivado_build/arty_s7_50_multi_lanes2_10p5ns/arty_s7_qmc_multi.bit` |
+
+The S7-50 two-lane configuration does not close at 100 MHz (it misses by
+-0.180 ns), so it is published at its honest 95.24 MHz closing clock rather than
+claimed at 100 MHz.
 
 Post-route utilization:
 
 | Target | LUTs | Registers | DSP48E1 | RAMB36 |
 |--------|------|-----------|---------|--------|
-| Arty A7-100T | 23,167 / 63,400 = 36.54% | 27,873 / 126,800 = 21.98% | 80 / 240 = 33.33% | 16 / 135 = 11.85% |
-| Arty S7-50 | 23,154 / 32,600 = 71.02% | 27,873 / 65,200 = 42.75% | 80 / 120 = 66.67% | 16 / 75 = 21.33% |
+| Arty A7-100T, 4 lanes | 45,875 / 63,400 = 72.36% | 46,911 / 126,800 = 37.00% | 180 / 240 = 75.00% | 66 / 135 = 48.89% |
+| Arty S7-50, 1 lane | 23,399 / 32,600 = 71.78% | 28,967 / 65,200 = 44.43% | 84 / 120 = 70.00% | 65 / 75 = 86.67% |
+| Arty S7-50, 2 lanes | 30,606 / 32,600 = 93.88% | 34,855 / 65,200 = 53.46% | 116 / 120 = 96.67% | 65 / 75 = 86.67% |
 
 FPGA compute time is measured from the RTL `core_cycles` counter divided by the implemented clock frequency. UART round-trip time is tracked separately by the host scripts because serial transfer and host scheduling are not pricing-core work.
 
@@ -79,7 +88,7 @@ The current kernel prices vanilla American-style options under geometric Brownia
 - Regression basis for PUT continuation: `[1, S/K - 1, (S/K - 1)^2]`.
 - Regression fallback: singular or unstable solves fall back to mean continuation; beta coefficients above the Q16.16 cap of 4096.0 also trigger fallback.
 
-Parity snapshot:
+Legacy regeneration-based v1 parity snapshot:
 
 | Case | C++ Q16.16 | RTL Q16.16 | Delta | Core cycles |
 |------|------------|------------|-------|-------------|
@@ -89,7 +98,14 @@ Parity snapshot:
 | Multi-date PUT, N=1024, M=12 | 428,757 | 428,757 | 0 LSB | 7,370,906 |
 | Multi-date CALL, N=64, M=12 | 482,546 | 482,546 | 0 LSB | 37,726 |
 
-At 100 MHz, the N=1024, M=12 multi-date PUT case is `7,370,906 / 100e6 = 73.70906 ms` of core compute.
+The active stored-path v2 engine preserves the same N=1024/M=12 raw price
+(`428,757`, `0x00068AD5`) while reducing the compute window to 720,474,
+411,626, 236,362, and 121,290 cycles for 1, 2, 4, and 8 lanes respectively.
+The routed four-lane A7-100T finishes in 2.364 ms, a 31.18x cycle reduction
+from v1, and sustains 5.199 million path-date evaluations/s. Eight lanes
+simulates in 1.213 ms but does not fit the A7-100T. See
+`.user/PERFORMANCE_MATRIX.md` for the complete path/date matrix, optimized C++
+comparison, accuracy evidence, and claim boundaries.
 
 ## Product Architecture
 
@@ -115,7 +131,7 @@ Greek bump engine
     -> position and portfolio exposures
 ```
 
-Defer RTL batching, variance reduction, Brownian bridge, multi-lane multi-date, and higher fmax work until measurements from the product layer show a real bottleneck.
+Defer variance reduction, Brownian bridge, and higher-fmax work until measurements from the product layer show a real bottleneck. Stored-path, banked, multi-lane multi-date RTL is implemented.
 
 ## Roadmap
 
@@ -206,6 +222,7 @@ tb/                       RTL testbenches
 
 ## Documentation Map
 
+- [`.user/PORTFOLIO_RISK_ENGINE_LAB_MANUAL.md`](.user/PORTFOLIO_RISK_ENGINE_LAB_MANUAL.md): extensive learning-first implementation plan, exercises, validation gates, and interview preparation.
 - [`PROJECT_REPORT.md`](PROJECT_REPORT.md): longer explanation of the fork scope and inherited kernel.
 - [`.user/IMPLEMENTATION_STATUS.md`](.user/IMPLEMENTATION_STATUS.md): current implementation state.
 - [`.user/ROADMAP.md`](.user/ROADMAP.md): product roadmap.

@@ -30,6 +30,7 @@ set sources [list \
     src/io/uart/uart_tx32.sv \
     src/io/handlers/uart_input_handler.sv \
     src/top/top_option_pricer_multi.sv \
+    src/top/top_option_pricer_multi_stored.sv \
     src/top/top_option_pricer.sv \
 ]
 

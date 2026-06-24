@@ -33,7 +33,11 @@ The inherited kernel proves five important things:
 4. The remaining pricing error is primarily estimator/model error, not hardware arithmetic error.
 5. The hardware kernel fits and routes at 100 MHz on both the Arty A7-100T and the Spartan-7 based Arty S7-50.
 
-## Final Kernel Results
+## v1 Foundation Kernel Results
+
+These are the preserved regeneration-based v1 single-lane builds. The active
+deliverable is the Stored-Path v2 Multi-Lane Engine documented in the next
+section.
 
 ### Timing
 
@@ -64,6 +68,54 @@ BRAM is low because the multi-date architecture stores one cashflow per path ins
 | multi-date | 64 | 12 | CALL | 482,546 | 482,546 | 0 LSB | 37,726 |
 
 At 100 MHz, the 1024-path, 12-step multi-date PUT case takes 73.70906 ms of FPGA core time.
+
+## Stored-Path v2 Multi-Lane Engine
+
+The active engine (`src/top/top_option_pricer_multi_stored.sv`) replaces the v1
+regeneration controller. It stores every simulated spot once in lane-banked BRAM,
+replicates the path and feature pipelines across `NUM_LANES`, and schedules
+independent paths step-major. It preserves the exact N=1024/M=12 raw price
+`428,757` (`0x00068AD5`) at every lane count.
+
+### Cycle Scaling (1,024 paths x 12 steps)
+
+| Lanes | Core cycles | Time at 100 MHz | Speedup vs 7,370,906-cycle v1 |
+|------:|------------:|----------------:|------------------------------:|
+| 1 | 720,474 | 7.205 ms | 10.23x |
+| 2 | 411,626 | 4.116 ms | 17.91x |
+| 4 | 236,362 | 2.364 ms | 31.18x |
+| 8 | 121,290 | 1.213 ms | 60.77x |
+
+### Routed Board Results
+
+| Target / config | Clock | WNS | Utilization | Status |
+|-----------------|-------|-----|-------------|--------|
+| Arty A7-100T, 4 lanes | 100 MHz | +0.144 ns | 45,875 LUT / 180 DSP / 66 RAMB36 | Routed, headline deliverable |
+| Arty S7-50, 1 lane | 100 MHz | +0.310 ns | 23,399 LUT / 84 DSP / 65 RAMB36 | Routed |
+| Arty S7-50, 2 lanes | 95.24 MHz | +0.083 ns | 30,606 LUT / 116 DSP / 65 RAMB36 | Routed at relaxed clock (4.322 ms); fails 100 MHz by -0.180 ns |
+
+Eight lanes is simulation-only (91,092 LUTs, 143.68% of the A7-100T) and does not
+fit any evaluated board.
+
+### Optimized C++ Comparison
+
+Measured on a 13th Gen Intel Core i9-13905H (MinGW Release `-O3 -DNDEBUG`,
+single-thread, 15 repetitions of the exact 1,024x12 PUT). The comparison is
+reported at three explicit boundaries so the multiplier is honest:
+
+| C++ timing boundary | Mean | A7 four-lane factor (CPU / 2.364 ms) |
+|---------------------|-----:|-------------------------------------:|
+| Hot kernel (paths/direction persistent) | 1.285 ms | 0.54x |
+| Pricing core plus path allocation | 1.336 ms | 0.57x |
+| End-to-end plus direction-file load | 1.860 ms | 0.79x |
+
+The routed four-lane A7 engine is 1.27x to 1.84x slower than this optimized
+laptop CPU depending on the boundary. The defensible performance claim is the
+31.18x architectural improvement over the engine's own v1 RTL with bit-exact
+output, not a CPU win. The CPU is faster because it runs at multi-GHz with large
+caches and out-of-order execution, while the FPGA is proven at 100 MHz and fits
+only four replicated lanes on the A7. Full methodology, the complete path/date
+matrix, and claim boundaries are in `.user/PERFORMANCE_MATRIX.md`.
 
 ## Why QMC-LSM Belongs In A Risk Engine
 
@@ -203,17 +255,20 @@ Event and sentiment features belong here only if they improve out-of-sample risk
 
 Do not start with RTL changes unless product measurements justify them.
 
-Deferred until measured:
+Stored-path, banked, multi-lane multi-date RTL is already implemented (see the
+Stored-Path v2 Multi-Lane Engine section above). The remaining items are deferred
+until product measurements justify them:
 
-- RTL path batching,
-- multi-lane multi-date RTL,
+- RTL path batching beyond the 1,024-path by 50-date stored capacity,
 - Brownian bridge,
 - control variates,
 - dividend-yield input,
 - higher than 100 MHz fmax,
-- smaller-board retargeting.
+- further smaller-board retargeting.
 
-The final kernel uses only 16 RAMB36 on both A7-100T and S7-50, so BRAM pressure is not currently the reason to batch.
+The v1 foundation kernel uses only 16 RAMB36 on both A7-100T and S7-50. The v2
+stored-path engine trades that for 65-66 RAMB36 to keep every path resident, which
+is what removes the v1 regeneration penalty.
 
 ## Validation Policy
 
