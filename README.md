@@ -1,8 +1,8 @@
 # FPGA QMC-LSM Portfolio Risk Engine
 
-This fork turns the original FPGA-accelerated American option pricer into a broader hardware-accelerated portfolio risk project.
+This is inherited from my own 2025 implementation and turns an FPGA-accelerated American option pricer into a broader hardware-accelerated portfolio risk project.
 
-The starting point is valuable: a completed QMC-LSM pricing kernel with bit-exact C++/RTL parity, UART control, Sobol quasi-Monte Carlo paths, fixed-point Longstaff-Schwartz regression, and 100 MHz Vivado builds for Arty A7-100T and Arty S7-50. This fork uses that kernel where it is strongest: repeated pricing, scenario sweeps, Greeks, and eventually path-dependent or multi-asset derivatives where tree methods become less attractive.
+This includes a completed QMC-LSM pricing kernel with bit-exact C++/RTL parity, UART control, Sobol quasi-Monte Carlo paths, fixed-point Longstaff-Schwartz regression, and 100 MHz Vivado builds for Arty A7-100T and Arty S7-50. This fork uses that kernel where it is strongest: repeated pricing, scenario sweeps, Greeks, and eventually path-dependent or multi-asset derivatives where tree methods become less attractive.
 
 The new project goal is:
 
