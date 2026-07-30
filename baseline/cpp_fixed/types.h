@@ -41,8 +41,8 @@ inline int32_t fxExp(int32_t x) {
     return toint32_t(ed);
 }
 
-constexpr int N_DEFAULT = 10000;
-constexpr int M_DEFAULT = 50;
+constexpr int N_DEFAULT = 1024;
+constexpr int M_DEFAULT = 12;
 constexpr int32_t S0_DEFAULT = int32_t(150 * ONE);
 constexpr int32_t K_DEFAULT = int32_t(100 * ONE);
 constexpr int32_t r_DEFAULT = int32_t(0.05 * ONE);

@@ -1,6 +1,6 @@
 param(
-    [int]$Paths = 10000,
-    [int]$Steps = 50,
+    [int]$Paths = 1024,
+    [int]$Steps = 12,
     [double]$S0 = 100.0,
     [double]$K = 100.0,
     [double]$R = 0.05,

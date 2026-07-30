@@ -13,7 +13,8 @@ timeprecision 1ps;
 //
 // The arithmetic contract remains the same as the C++ RTL mirror:
 //   PUT: exercise at dates 1..M-1 using [1, x, x^2], x=S/K-1.
-//   CALL: no early exercise for q=0; discount terminal payoff by disc^M.
+//   CALL: no pathwise early exercise for q=0; discount terminal payoff by disc^M.
+//   Both: compare the discounted estimate with intrinsic value at valuation time.
 module top_mc_option_pricer_multi_stored #(
     parameter int CLK_FREQ_HZ              = 100_000_000,
     parameter int BAUD_RATE                = 115200,
@@ -441,6 +442,11 @@ module top_mc_option_pricer_multi_stored #(
     logic [64:0] final_div_trial_reg;
     logic final_div_ge;
     wire [63:0] final_div_den = (lat_N == 0) ? 64'd1 : {48'd0, lat_N};
+    logic signed [W-1:0] final_average;
+    logic signed [W-1:0] valuation_intrinsic;
+
+    assign final_average = final_avg_saturate(final_div_quotient, final_div_sign);
+    assign valuation_intrinsic = payoff_value(lat_S0, lat_K, lat_option_type);
 
     wire [NUM_LANES-1:0] feature_done_vec;
     for (genvar fd = 0; fd < NUM_LANES; fd++)
@@ -910,7 +916,8 @@ module top_mc_option_pricer_multi_stored #(
                         sub_phase<=1;
                     end
                 end else begin
-                    result_price<=final_avg_saturate(final_div_quotient,final_div_sign);
+                    result_price <= (final_average >= valuation_intrinsic)
+                        ? final_average : valuation_intrinsic;
                     sub_phase<=0; state<=ST_DONE;
                 end
             end

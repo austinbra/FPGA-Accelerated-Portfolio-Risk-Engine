@@ -45,3 +45,10 @@ target_compile_definitions(
 if(QMC_BENCHMARK_NATIVE_ARCH AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(qmc_google_benchmark PRIVATE -march=native)
 endif()
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(pricing_intrinsic_test pricing_intrinsic_test.cpp)
+    target_link_libraries(pricing_intrinsic_test PRIVATE qmc_fixed_core)
+    add_test(NAME pricing_intrinsic_floor COMMAND pricing_intrinsic_test)
+endif()

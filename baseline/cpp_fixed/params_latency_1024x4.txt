@@ -1,6 +1,6 @@
-# Hardware-valid default: representative monthly exercise schedule
+# Canonical latency case: four-lane Artix-7, discrete multi-date exercise
 paths=1024
-steps=12
+steps=4
 S0=100.0
 K=100.0
 r=0.05

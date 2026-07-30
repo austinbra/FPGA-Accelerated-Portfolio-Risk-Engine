@@ -1,0 +1,483 @@
+{
+  "schema_version": 2,
+  "claim_ready": true,
+  "provenance": {
+    "generated_at_utc": "2026-07-29T23:49:45.134471+00:00",
+    "git_commit": "c031f4b24fc783fc0dc30e0185cfc2e6ae3850e6",
+    "git_worktree_dirty": true,
+    "operating_system": "Windows-11-10.0.26200-SP0",
+    "current_host_cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+    "benchmark_cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+    "python": "3.13.1 (tags/v3.13.1:0671451, Dec  3 2024, 19:06:28) [MSC v.1942 64 bit (AMD64)]",
+    "cpp_compiler": "g++ (MinGW-W64 x86_64-msvcrt-posix-seh, built by Brecht Sanders, r3) 14.2.0",
+    "benchmark_compiler": "g++ (MinGW-W64 x86_64-msvcrt-posix-seh, built by Brecht Sanders, r3) 14.2.0",
+    "google_benchmark": {
+      "date": "2026-07-29T23:49:28-00:00",
+      "executable": "./.tmp/claim-evidence-final-run/benchmark/qmc_google_benchmark.exe",
+      "num_cpus": 20,
+      "mhz_per_cpu": 2995,
+      "caches": [
+        {
+          "type": "Data",
+          "level": 1,
+          "size": 49152,
+          "num_sharing": 2
+        },
+        {
+          "type": "Instruction",
+          "level": 1,
+          "size": 32768,
+          "num_sharing": 2
+        },
+        {
+          "type": "Unified",
+          "level": 2,
+          "size": 1310720,
+          "num_sharing": 2
+        },
+        {
+          "type": "Unified",
+          "level": 3,
+          "size": 25165824,
+          "num_sharing": 20
+        }
+      ],
+      "load_avg": [],
+      "library_version": "v1.9.4",
+      "library_build_type": "release",
+      "json_schema_version": 1
+    },
+    "vivado": "Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025",
+    "fpga_device": "xc7a100tcsg324-1",
+    "implementation_top": "arty_a7_option_pricer_top",
+    "rtl_core_top": "top_mc_option_pricer_multi_stored",
+    "lanes": 4,
+    "configured_clock_hz": 100000000.0,
+    "configured_clock_period_ns": 10.0,
+    "routed_clock_hz": 100000000.0,
+    "routed_clock_period_ns": 10.0,
+    "latency_clock_hz": 100000000.0,
+    "latency_clock_source": "routed sys_clk Clock Summary",
+    "exercise_mode": "multi",
+    "option_type": "put",
+    "collection_modes": {
+      "cpp": "run",
+      "xsim": "run",
+      "benchmark": "run",
+      "vivado": "parse"
+    },
+    "parsed_source_fingerprint": "8f577a64e569a4296cb2c375e4a0fe1da4cb59d3801b2ed0c45be42fc62b6802",
+    "parsed_git_commit": "c031f4b24fc783fc0dc30e0185cfc2e6ae3850e6",
+    "source_snapshot": {
+      "combined_sha256": "8f577a64e569a4296cb2c375e4a0fe1da4cb59d3801b2ed0c45be42fc62b6802",
+      "rtl": {
+        "sha256": "6c39e59fb4720025ef6beab045ec96fa69e1fe696188b8a748b3017448c23a7b",
+        "file_count": 38,
+        "latest_source_mtime_ns": 1785365441905559300,
+        "latest_source_mtime_utc": "2026-07-29T22:50:41.905559+00:00",
+        "latest_source_path": "src/top/top_option_pricer_multi_stored.sv"
+      },
+      "cpp": {
+        "sha256": "9a77f03d5943de663b1ce8472bdfae3e6d5e3e37596234b39875764c0a39cdad",
+        "file_count": 20,
+        "latest_source_mtime_ns": 1785367148598221600,
+        "latest_source_mtime_utc": "2026-07-29T23:19:08.598222+00:00",
+        "latest_source_path": "baseline/cpp_fixed/types.h"
+      }
+    },
+    "artifact_fingerprints": {
+      "collector": {
+        "path": "scripts/reproduce_claims.py",
+        "sha256": "7f735c4cfec2a2f54d132b06e041584799b461d71a4be6bb8ed9de2c672c0143",
+        "size_bytes": 60519,
+        "mtime_ns": 1785368865822319700,
+        "mtime_utc": "2026-07-29T23:47:45.822320+00:00"
+      },
+      "timing_report": {
+        "path": "vivado_build/arty_a7_100_multi_lanes4_10ns/timing_post_route.rpt",
+        "sha256": "7c5de0595cdb2e4895190bd4c53568ed10ab10776716fb0d3bcc07ac9db9fc62",
+        "size_bytes": 282760,
+        "mtime_ns": 1785366627197814000,
+        "mtime_utc": "2026-07-29T23:10:27.197814+00:00"
+      },
+      "utilization_report": {
+        "path": "vivado_build/arty_a7_100_multi_lanes4_10ns/utilization.rpt",
+        "sha256": "061d512d634cf0d8f3cce3eb49e5802de0ed9be406d82bced7eb8574c779b810",
+        "size_bytes": 11740,
+        "mtime_ns": 1785366627806373800,
+        "mtime_utc": "2026-07-29T23:10:27.806374+00:00"
+      },
+      "google_benchmark": {
+        "path": ".tmp/claim-evidence-final-run/raw/google_benchmark.json",
+        "sha256": "e3422f164db36775a2bb1c6ade8759e41a78be587e01547325f50f5107f859bf",
+        "size_bytes": 14613,
+        "mtime_ns": 1785368983168195500,
+        "mtime_utc": "2026-07-29T23:49:43.168195+00:00"
+      }
+    },
+    "vivado_run": null,
+    "cpp_build_command": [
+      "g++",
+      "-std=c++17",
+      "-O3",
+      "-DNDEBUG",
+      "main.cpp",
+      "pricing.cpp",
+      "linalg.cpp",
+      "rtl_math.cpp",
+      "sobol_wrapper.cpp",
+      "utils.cpp",
+      "-o",
+      "./.tmp/claim-evidence-final-run/cpp/fixed_baseline.exe"
+    ],
+    "benchmark_commands": [
+      [
+        "cmake",
+        "-G",
+        "MinGW Makefiles",
+        "-S",
+        "./baseline/cpp_fixed",
+        "-B",
+        "./.tmp/claim-evidence-final-run/benchmark",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DCMAKE_CXX_COMPILER=~/mingw64/bin/g++.EXE",
+        "-DQMC_BENCHMARK_NATIVE_ARCH=ON",
+        "-DBENCHMARK_ENABLE_TESTING=OFF"
+      ],
+      [
+        "cmake",
+        "--build",
+        "./.tmp/claim-evidence-final-run/benchmark",
+        "--config",
+        "Release"
+      ],
+      [
+        "./.tmp/claim-evidence-final-run/benchmark/qmc_google_benchmark.exe",
+        "--benchmark_filter=BM_(EndToEnd|PricingCore|HotKernel)MultiPutMatrix/1024/(4|12)$",
+        "--benchmark_repetitions=15",
+        "--benchmark_report_aggregates_only=true",
+        "--benchmark_min_time=0.1s",
+        "--benchmark_out=./.tmp/claim-evidence-final-run/raw/google_benchmark.json",
+        "--benchmark_out_format=json"
+      ]
+    ],
+    "skipped_sources": []
+  },
+  "timing_boundary_definitions": {
+    "fpga_core": "RTL acceptance of a complete job through result_valid; includes initialization, Sobol/GBM generation, LSM regression, exercise decisions, and averaging; excludes UART, USB, Python, and host scheduling",
+    "cpu_end_to_end": "direction-file load, allocation, path generation, and induction",
+    "cpu_pricing_core": "persistent direction data; allocation, path generation, and induction",
+    "cpu_hot_kernel": "persistent direction data and path storage; path generation and induction"
+  },
+  "routed_timing": {
+    "tool": "Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025",
+    "report_date": "Wed Jul 29 18:10:27 2026",
+    "implementation_top": "arty_a7_option_pricer_top",
+    "device": "7a100t-csg324",
+    "design_state": "Routed",
+    "wns_ns": 0.139,
+    "tns_ns": 0.0,
+    "setup_failing_endpoints": 0,
+    "clock_name": "sys_clk",
+    "clock_period_ns": 10.0,
+    "clock_frequency_mhz": 100.0,
+    "all_constraints_met": true
+  },
+  "routed_utilization": {
+    "tool": "Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025",
+    "report_date": "Wed Jul 29 18:10:27 2026",
+    "implementation_top": "arty_a7_option_pricer_top",
+    "device": "xc7a100tcsg324-1",
+    "design_state": "Routed",
+    "slice_luts": {
+      "used": 45955,
+      "available": 63400,
+      "percent": 72.48
+    },
+    "slice_registers": {
+      "used": 46905,
+      "available": 126800,
+      "percent": 36.99
+    },
+    "block_ram_tiles": {
+      "used": 66,
+      "available": 135,
+      "percent": 48.89
+    },
+    "dsps": {
+      "used": 180,
+      "available": 240,
+      "percent": 75.0
+    }
+  },
+  "cases": [
+    {
+      "case_id": "put_1024x4_multi",
+      "workload": {
+        "case_id": "put_1024x4_multi",
+        "paths": 1024,
+        "steps": 4,
+        "expected_price_raw": 391343,
+        "expected_core_cycles": 72394,
+        "S0": 100.0,
+        "K": 100.0,
+        "r": 0.05,
+        "sigma": 0.2,
+        "T": 1.0,
+        "option_type": 1
+      },
+      "cpp_rtl_exact": {
+        "price_raw_q16_16": 391343,
+        "price": 5.97142,
+        "process_elapsed_seconds": 0.004328,
+        "exercise_mode_label": "FPGA_STYLE_MULTI_EXERCISE",
+        "option_type": "put",
+        "command": [
+          "./.tmp/claim-evidence-final-run/cpp/fixed_baseline.exe",
+          "--paths",
+          "1024",
+          "--steps",
+          "4",
+          "--S0",
+          "100.0",
+          "--K",
+          "100.0",
+          "--r",
+          "0.05",
+          "--sigma",
+          "0.2",
+          "--T",
+          "1.0",
+          "--option-type",
+          "1",
+          "--exercise-mode",
+          "multi",
+          "--direction-file",
+          "./src/gen/direction.mem",
+          "--lut-dir",
+          "./src/gen"
+        ],
+        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x4_multi_cpp.txt",
+        "artifact_fingerprint": {
+          "path": ".tmp/claim-evidence-final-run/raw/put_1024x4_multi_cpp.txt",
+          "sha256": "6aa5e1bcb766bad8e6de1b5257ca5f7d36b6f7ec059dc273e9842098306ed429",
+          "size_bytes": 174,
+          "mtime_ns": 1785368924834212200,
+          "mtime_utc": "2026-07-29T23:48:44.834212+00:00"
+        }
+      },
+      "rtl_xsim_four_lane": {
+        "paths": 1024,
+        "steps": 4,
+        "core_cycles": 72394,
+        "price_raw_q16_16": 391343,
+        "result_marker": 2882338817,
+        "evidence_line": "[VIRTUAL_A7] paths=1024 steps=4 core_cycles=72394 price_raw=0x0005f8af marker=0xabcd0001",
+        "xsim_version": "2025.1",
+        "price": 5.9714202880859375,
+        "command": [
+          "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "./scripts/run_tb_top_uart_safe.ps1",
+          "-ComputeMode",
+          "-MultiExercise",
+          "-NumLanes",
+          "4",
+          "-TestPlusargs",
+          "paths=1024,steps=4,S0=6553600,K=6553600,r=3277,sigma=13107,T=65536,opt=1,expected_price=391343",
+          "-XsimTimeoutSeconds",
+          "3600",
+          "-NoCleanup"
+        ],
+        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x4_multi_xsim.txt",
+        "artifact_fingerprint": {
+          "path": ".tmp/claim-evidence-final-run/raw/put_1024x4_multi_xsim.txt",
+          "sha256": "3af859266cc90a76741af443b72694edb9cd0d73c12218ecdfcbd42d2ae408ef",
+          "size_bytes": 11673,
+          "mtime_ns": 1785368946695955800,
+          "mtime_utc": "2026-07-29T23:49:06.695956+00:00"
+        },
+        "core_latency_seconds": 0.00072394,
+        "latency_clock_source": "routed sys_clk Clock Summary"
+      },
+      "cpp_rtl_parity": {
+        "raw_lsb_delta": 0,
+        "bit_exact": true
+      },
+      "cpu_boundaries": {
+        "end_to_end": {
+          "benchmark": "BM_EndToEndMultiPutMatrix/1024/4",
+          "mean_real_seconds": 0.0009673007867563184,
+          "mean_cpu_seconds": 0.0009640269151138716,
+          "repetitions": 15,
+          "iterations": 15,
+          "label": "Q16.16 price=391343",
+          "cpu_mean_real_over_fpga_core_ratio": 1.3361615420564115
+        },
+        "pricing_core": {
+          "benchmark": "BM_PricingCoreMultiPutMatrix/1024/4",
+          "mean_real_seconds": 0.0008445575907280846,
+          "mean_cpu_seconds": 0.0008302392739273927,
+          "repetitions": 15,
+          "iterations": 15,
+          "label": "Q16.16 price=391343",
+          "cpu_mean_real_over_fpga_core_ratio": 1.166612689902595
+        },
+        "hot_kernel": {
+          "benchmark": "BM_HotKernelMultiPutMatrix/1024/4",
+          "mean_real_seconds": 0.0007252422718979849,
+          "mean_cpu_seconds": 0.000704143389199255,
+          "repetitions": 15,
+          "iterations": 15,
+          "label": "Q16.16 price=391343",
+          "cpu_mean_real_over_fpga_core_ratio": 1.0017988671685292
+        }
+      },
+      "financial_reference": {
+        "model": "CRR American binomial tree",
+        "reference_steps": 4096,
+        "price": 6.090185194573057,
+        "qmc_lsm_price": 5.9714202880859375,
+        "signed_error": -0.11876490648711968,
+        "absolute_error": 0.11876490648711968,
+        "signed_error_bps_of_spot": -11.876490648711968,
+        "absolute_error_bps_of_spot": 11.876490648711968,
+        "scope": "this canonical workload only; not a global accuracy guarantee"
+      }
+    },
+    {
+      "case_id": "put_1024x12_multi",
+      "workload": {
+        "case_id": "put_1024x12_multi",
+        "paths": 1024,
+        "steps": 12,
+        "expected_price_raw": 428757,
+        "expected_core_cycles": 236362,
+        "S0": 100.0,
+        "K": 100.0,
+        "r": 0.05,
+        "sigma": 0.2,
+        "T": 1.0,
+        "option_type": 1
+      },
+      "cpp_rtl_exact": {
+        "price_raw_q16_16": 428757,
+        "price": 6.54231,
+        "process_elapsed_seconds": 0.0045346,
+        "exercise_mode_label": "FPGA_STYLE_MULTI_EXERCISE",
+        "option_type": "put",
+        "command": [
+          "./.tmp/claim-evidence-final-run/cpp/fixed_baseline.exe",
+          "--paths",
+          "1024",
+          "--steps",
+          "12",
+          "--S0",
+          "100.0",
+          "--K",
+          "100.0",
+          "--r",
+          "0.05",
+          "--sigma",
+          "0.2",
+          "--T",
+          "1.0",
+          "--option-type",
+          "1",
+          "--exercise-mode",
+          "multi",
+          "--direction-file",
+          "./src/gen/direction.mem",
+          "--lut-dir",
+          "./src/gen"
+        ],
+        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x12_multi_cpp.txt",
+        "artifact_fingerprint": {
+          "path": ".tmp/claim-evidence-final-run/raw/put_1024x12_multi_cpp.txt",
+          "sha256": "08fd5b1a3831957029d0e4acb8dd4df900c7808db61688200819c3102b55738e",
+          "size_bytes": 175,
+          "mtime_ns": 1785368924873851400,
+          "mtime_utc": "2026-07-29T23:48:44.873851+00:00"
+        }
+      },
+      "rtl_xsim_four_lane": {
+        "paths": 1024,
+        "steps": 12,
+        "core_cycles": 236362,
+        "price_raw_q16_16": 428757,
+        "result_marker": 2882338817,
+        "evidence_line": "[VIRTUAL_A7] paths=1024 steps=12 core_cycles=236362 price_raw=0x00068ad5 marker=0xabcd0001",
+        "xsim_version": "2025.1",
+        "price": 6.5423126220703125,
+        "command": [
+          "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          "./scripts/run_tb_top_uart_safe.ps1",
+          "-ComputeMode",
+          "-MultiExercise",
+          "-NumLanes",
+          "4",
+          "-TestPlusargs",
+          "paths=1024,steps=12,S0=6553600,K=6553600,r=3277,sigma=13107,T=65536,opt=1,expected_price=428757",
+          "-XsimTimeoutSeconds",
+          "3600",
+          "-SkipCompile"
+        ],
+        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x12_multi_xsim.txt",
+        "artifact_fingerprint": {
+          "path": ".tmp/claim-evidence-final-run/raw/put_1024x12_multi_xsim.txt",
+          "sha256": "1ba3ec6b3ffc6d3283708b1c5511f82ab88819cf492c818d8b878aeaffdff285",
+          "size_bytes": 2003,
+          "mtime_ns": 1785368960039136000,
+          "mtime_utc": "2026-07-29T23:49:20.039136+00:00"
+        },
+        "core_latency_seconds": 0.00236362,
+        "latency_clock_source": "routed sys_clk Clock Summary"
+      },
+      "cpp_rtl_parity": {
+        "raw_lsb_delta": 0,
+        "bit_exact": true
+      },
+      "cpu_boundaries": {
+        "end_to_end": {
+          "benchmark": "BM_EndToEndMultiPutMatrix/1024/12",
+          "mean_real_seconds": 0.0020769060740281862,
+          "mean_cpu_seconds": 0.001990740740740741,
+          "repetitions": 15,
+          "iterations": 15,
+          "label": "Q16.16 price=428757",
+          "cpu_mean_real_over_fpga_core_ratio": 0.8786971146073338
+        },
+        "pricing_core": {
+          "benchmark": "BM_PricingCoreMultiPutMatrix/1024/12",
+          "mean_real_seconds": 0.0018417926748578318,
+          "mean_cpu_seconds": 0.0018004115226337447,
+          "repetitions": 15,
+          "iterations": 15,
+          "label": "Q16.16 price=428757",
+          "cpu_mean_real_over_fpga_core_ratio": 0.7792253724616613
+        },
+        "hot_kernel": {
+          "benchmark": "BM_HotKernelMultiPutMatrix/1024/12",
+          "mean_real_seconds": 0.0018705283127315037,
+          "mean_cpu_seconds": 0.0018389917695473248,
+          "repetitions": 15,
+          "iterations": 15,
+          "label": "Q16.16 price=428757",
+          "cpu_mean_real_over_fpga_core_ratio": 0.7913828418830031
+        }
+      },
+      "financial_reference": null
+    }
+  ],
+  "validation": {
+    "problems": [],
+    "warnings": []
+  }
+}

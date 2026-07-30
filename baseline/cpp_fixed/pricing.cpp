@@ -395,6 +395,12 @@ void singleExerciseInduction(int N, int M, int32_t r, int32_t T, int32_t K, std:
 }
 
 void multiExerciseInductionRtlMirror(int N, int M, int32_t r, int32_t T, int32_t K, std::vector<Path>& paths, int32_t& price_out, bool isPut) {
+    // Generated-path contract: every path starts from the same valuation spot
+    // in S[0]. The explicit precondition keeps the t=0 intrinsic floor safe for
+    // focused hand-built tests as well as simulatePaths output.
+    assert(N > 0 && M > 0);
+    assert(paths.size() >= static_cast<std::size_t>(N));
+    assert(!paths.front().S.empty());
     int32_t M_q = toint32_t(static_cast<double>(M));
     int32_t dt = rtlFxDiv(T, M_q);
     int32_t discount = rtlDiscount(r, dt);
@@ -427,7 +433,11 @@ void multiExerciseInductionRtlMirror(int N, int M, int32_t r, int32_t T, int32_t
         }
 
         trace64("FINAL", "sum_pv", sumPV, -1, -1, "multi");
-        price_out = static_cast<int32_t>(sumPV / N);
+        const int32_t discounted_estimate = static_cast<int32_t>(sumPV / N);
+        const int32_t intrinsic_at_valuation = payoff(paths.front().S.front(), K, isPut);
+        trace32("FINAL", "discounted_estimate", discounted_estimate, -1, 0, "multi");
+        trace32("FINAL", "intrinsic_t0", intrinsic_at_valuation, -1, 0, "multi");
+        price_out = std::max(discounted_estimate, intrinsic_at_valuation);
         trace32("FINAL", "price", price_out, -1, -1, "multi");
         return;
     }
@@ -541,6 +551,10 @@ void multiExerciseInductionRtlMirror(int N, int M, int32_t r, int32_t T, int32_t
     }
 
     trace64("FINAL", "sum_pv", sumPV, -1, -1, "multi");
-    price_out = static_cast<int32_t>(sumPV / N);
+    const int32_t discounted_estimate = static_cast<int32_t>(sumPV / N);
+    const int32_t intrinsic_at_valuation = payoff(paths.front().S.front(), K, isPut);
+    trace32("FINAL", "discounted_estimate", discounted_estimate, -1, 0, "multi");
+    trace32("FINAL", "intrinsic_t0", intrinsic_at_valuation, -1, 0, "multi");
+    price_out = std::max(discounted_estimate, intrinsic_at_valuation);
     trace32("FINAL", "price", price_out, -1, -1, "multi");
 }

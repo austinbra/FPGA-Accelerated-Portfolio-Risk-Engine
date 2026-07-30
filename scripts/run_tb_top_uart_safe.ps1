@@ -6,6 +6,8 @@ param(
     [int]$XelabTimeoutSeconds = 600,
     [int]$XsimTimeoutSeconds = 600,
     [switch]$ComputeMode,
+    [ValidateSet("put", "call")]
+    [string]$IntrinsicCase,
     [switch]$Multibatch,  # Run tb_top_option_pricer_uart_multibatch (2 batches, compute mode)
     [switch]$MultiExercise,  # Run stored-path multi-exercise RTL (lane count selected below)
     [switch]$SkipCompile,    # Reuse an existing xelab snapshot (fast benchmark sweeps)
@@ -79,8 +81,8 @@ function Invoke-ToolWithTimeout {
         if ($out) { Write-Output $out }
         if ($err) { Write-Output $err }
         $combined = "$out`n$err"
-        if ($combined -match "(?m)^(ERROR|FATAL):") {
-            throw "$Exe reported an ERROR/FATAL message"
+        if ($combined -match "(?m)^(ERROR|FATAL|FAIL):") {
+            throw "$Exe reported an ERROR/FATAL/FAIL message"
         }
         # ExitCode can be null with Start-Process on some Windows setups; only fail on definite non-zero
         $ec = $proc.ExitCode
@@ -134,7 +136,11 @@ if (-not $SkipCompile) {
     Invoke-ToolWithTimeout -Exe $XvlogExe -CmdArgs ($baseArgs + $sources) -TimeoutSec $XvlogTimeoutSeconds
 }
 
-if ($Multibatch) {
+if ($IntrinsicCase) {
+    $topName = "tb_top_option_pricer_uart_intrinsic_${IntrinsicCase}_lanes4"
+    $top = "work.$topName"
+    $snap = "${topName}_sim"
+} elseif ($Multibatch) {
     $top = "work.tb_top_option_pricer_uart_multibatch"
     $snap = "tb_top_option_pricer_uart_multibatch_sim"
 } elseif ($MultiExercise) {

@@ -1,4 +1,4 @@
-# Hardware-valid default: representative monthly exercise schedule
+# Representative monthly exercise case: four-lane Artix-7
 paths=1024
 steps=12
 S0=100.0

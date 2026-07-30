@@ -5,7 +5,17 @@ module tb_top_option_pricer_uart_core #(
     parameter int NUM_BATCHES = 1,
     parameter int NUM_LANES = 1,
     parameter bit MULTI_EXERCISE = 1'b0,
-    parameter int TB_GLOBAL_MAX_CYCLES = 12_000_000
+    parameter int TB_GLOBAL_MAX_CYCLES = 12_000_000,
+    parameter int unsigned DEFAULT_PATHS = 64,
+    parameter int unsigned DEFAULT_STEPS = 12,
+    parameter logic [31:0] DEFAULT_S0 = 32'h0064_0000,
+    parameter logic [31:0] DEFAULT_K = 32'h0064_0000,
+    parameter logic [31:0] DEFAULT_R = 32'h0000_0CCD,
+    parameter logic [31:0] DEFAULT_SIGMA = 32'h0000_3333,
+    parameter logic [31:0] DEFAULT_T = 32'h0001_0000,
+    parameter bit DEFAULT_IS_PUT = 1'b1,
+    parameter bit HAS_DEFAULT_EXPECTED_PRICE = 1'b0,
+    parameter logic [31:0] DEFAULT_EXPECTED_PRICE = '0
 );
     parameter int CLK_FREQ_HZ = 100_000_000;
     parameter int BAUD_RATE   = 115200;
@@ -175,6 +185,7 @@ module tb_top_option_pricer_uart_core #(
         int unsigned v_opt;
         int unsigned v_expected_price;
         int has_expected_price;
+        logic signed [31:0] v_intrinsic;
         logic [63:0] cyc64;
         int _pu;
         begin
@@ -182,14 +193,16 @@ module tb_top_option_pricer_uart_core #(
             // paths, steps, S0, K, r, sigma, T, option_type (0=CALL, 1=PUT)
             // Override from xsim: -testplusarg paths=64 -testplusarg steps=12 ...
             // (decimal Q16.16 words for S0,K,r,sigma,T — same encoding as UART host)
-            v_paths = 32'd64;
-            v_steps = 32'd12;
-            v_s0    = 32'h0064_0000; // 100.0
-            v_k     = 32'h0064_0000; // 100.0
-            v_r     = 32'h0000_0CCD; // ~0.05
-            v_sig   = 32'h0000_3333; // ~0.2
-            v_t     = 32'h0001_0000; // 1.0
-            v_opt   = 32'd1;         // 1=PUT by default: exercises the American early-exercise path
+            v_paths = DEFAULT_PATHS;
+            v_steps = DEFAULT_STEPS;
+            v_s0    = DEFAULT_S0;
+            v_k     = DEFAULT_K;
+            v_r     = DEFAULT_R;
+            v_sig   = DEFAULT_SIGMA;
+            v_t     = DEFAULT_T;
+            v_opt   = DEFAULT_IS_PUT ? 32'd1 : 32'd0;
+            v_expected_price = DEFAULT_EXPECTED_PRICE;
+            has_expected_price = HAS_DEFAULT_EXPECTED_PRICE;
 
             // xsim warns if $value$plusargs is used as a task; assign to an int sink.
             _pu = $value$plusargs("paths=%d", v_paths);
@@ -200,7 +213,8 @@ module tb_top_option_pricer_uart_core #(
             _pu = $value$plusargs("sigma=%d", v_sig);
             _pu = $value$plusargs("T=%d", v_t);
             _pu = $value$plusargs("opt=%d", v_opt);
-            has_expected_price = $value$plusargs("expected_price=%d", v_expected_price);
+            _pu = $value$plusargs("expected_price=%d", v_expected_price);
+            if (_pu) has_expected_price = 1;
 
             params[0] = v_paths;
             params[1] = v_steps;
@@ -260,6 +274,16 @@ module tb_top_option_pricer_uart_core #(
                 errors++;
             end
 
+            v_intrinsic = v_opt[0]
+                ? (($signed(v_k) > $signed(v_s0)) ? $signed(v_k) - $signed(v_s0) : 32'sd0)
+                : (($signed(v_s0) > $signed(v_k)) ? $signed(v_s0) - $signed(v_k) : 32'sd0);
+            if (!EXPECT_TIMEOUT && MULTI_EXERCISE &&
+                $signed(result_words[1]) < v_intrinsic) begin
+                $display("Batch %0d valuation-time floor violated: intrinsic=0x%08h got=0x%08h",
+                         batch_idx, v_intrinsic, result_words[1]);
+                errors++;
+            end
+
             if (!EXPECT_TIMEOUT && result_words[1] != 32'hDEAD0001) begin
                 // Q16.16 sanity: an ATM vanilla option with S0=K=100 should price in [0.1, 50.0]
                 // i.e. raw value in [0x0000_1999, 0x0032_0000]
@@ -301,10 +325,12 @@ module tb_top_option_pricer_uart_core #(
             run_one_batch(b);
         end
 
-        if (errors == 0)
+        if (errors == 0) begin
             $display("PASS: top UART echo/result packet check (%0d batch(es))", NUM_BATCHES);
-        else
+        end else begin
             $display("FAIL: %0d error(s) detected", errors);
+            $fatal(1, "UART testbench assertions failed");
+        end
 
 `ifdef TB_UART_DEBUG
         $display("dut_uart_txd toggle count = %0d", dut_tx_toggle_count);
@@ -442,6 +468,32 @@ module tb_top_option_pricer_uart_compute_multi_lanes8;
     tb_top_option_pricer_uart_core #(
         .EXPECT_TIMEOUT(1'b0), .NUM_LANES(8), .MULTI_EXERCISE(1'b1),
         .TB_GLOBAL_MAX_CYCLES(1_500_000_000)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+// Focused valuation-time boundary cases. With four paths the raw estimator is
+// below intrinsic, so the expected result proves that the t=0 floor is active.
+module tb_top_option_pricer_uart_intrinsic_put_lanes4;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0), .NUM_LANES(4), .MULTI_EXERCISE(1'b1),
+        .TB_GLOBAL_MAX_CYCLES(1_500_000_000),
+        .DEFAULT_PATHS(4), .DEFAULT_STEPS(4),
+        .DEFAULT_S0(32'h0032_0000), .DEFAULT_K(32'h0064_0000),
+        .DEFAULT_IS_PUT(1'b1),
+        .HAS_DEFAULT_EXPECTED_PRICE(1'b1),
+        .DEFAULT_EXPECTED_PRICE(32'h0032_0000)
+    ) i_tb_top_option_pricer_uart_core ();
+endmodule
+
+module tb_top_option_pricer_uart_intrinsic_call_lanes4;
+    tb_top_option_pricer_uart_core #(
+        .EXPECT_TIMEOUT(1'b0), .NUM_LANES(4), .MULTI_EXERCISE(1'b1),
+        .TB_GLOBAL_MAX_CYCLES(1_500_000_000),
+        .DEFAULT_PATHS(4), .DEFAULT_STEPS(1),
+        .DEFAULT_S0(32'h0096_0000), .DEFAULT_K(32'h0064_0000),
+        .DEFAULT_R(32'h0000_0000), .DEFAULT_IS_PUT(1'b0),
+        .HAS_DEFAULT_EXPECTED_PRICE(1'b1),
+        .DEFAULT_EXPECTED_PRICE(32'h0032_0000)
     ) i_tb_top_option_pricer_uart_core ();
 endmodule
 

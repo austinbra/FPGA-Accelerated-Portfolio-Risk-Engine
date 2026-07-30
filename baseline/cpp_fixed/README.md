@@ -1,23 +1,25 @@
 # Fixed-Point C++ Pricing Mirror
 
-This directory contains the promoted CPU mirror for the FPGA pricing kernel. In the forked portfolio-risk project, this executable has two jobs:
+This directory contains the C++17 fixed-point mirror developed alongside the
+FPGA pricing kernel. It has two jobs:
 
 - provide a bit-exact parity oracle for RTL,
-- serve as the first pricing backend for portfolio, scenario, and Greeks tooling before a board is connected.
+- provide the CPU target for the implemented single-contract bump/revalue
+  workflow when a board is not connected.
 
 ## Build
 
 From this directory:
 
 ```powershell
-g++ -std=c++17 main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
+g++ -std=c++17 -O3 -DNDEBUG main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
 ```
 
 From the repository root:
 
 ```powershell
 cd baseline\cpp_fixed
-g++ -std=c++17 main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
+g++ -std=c++17 -O3 -DNDEBUG main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
 cd ..\..
 ```
 
@@ -80,6 +82,7 @@ The `--fpga-style` path mirrors the RTL contract:
 - truncates `sobol_out[31:16]`,
 - applies the one-LSB lower guard for `u=0`,
 - mirrors the RTL LUT/division/sqrt/inverse-CDF/GBM/regression/final-average math.
+- applies the same valuation-time intrinsic-value floor as the stored-path RTL.
 
 Example:
 
@@ -90,19 +93,20 @@ Example:
 Use:
 
 - `--exercise-mode single` for historical single-date compatibility,
-- `--exercise-mode multi` for the current American PUT kernel,
+- `--exercise-mode multi` for the current discrete-date early-exercise kernel,
 - `--option-type 0` for CALL,
 - `--option-type 1` for PUT.
 
-No-dividend CALLs use the terminal fast path while `q=0`.
+No-dividend CALLs use the terminal fast path while `q=0`. PUT and CALL
+results are both floored at intrinsic value at the valuation spot.
 
 ## File-Driven Run
 
 Input file format:
 
 ```text
-paths=10000
-steps=50
+paths=1024
+steps=12
 S0=100.0
 K=100.0
 r=0.05
@@ -122,14 +126,16 @@ Run:
 
 Example file: `params_example.txt`.
 
-## Role In The Fork
+## Role In The Continued Project
 
-The first product scripts should call this mirror before they call hardware. That lets portfolio parsing, scenario expansion, and Greek bump logic be tested without a connected board.
+The bump/revalue runner calls this mirror before hardware under the combined
+target. That lets scenario expansion, Greek arithmetic, and exact raw-price
+parity be tested without a connected board.
 
-Planned consumers:
+Implemented consumer:
 
-- `scripts/portfolio_price.py`,
-- `scripts/scenario_sweep.py`,
-- future bump/revalue Greek tooling.
+- `scripts/bump_revalue.py`.
 
-For FPGA speed comparisons, use FPGA core cycle counts from `src/uart_host.py` and compare them with CPU wall time from this executable. Keep UART round-trip time separate from pricing-core time.
+For CPU/FPGA measurements, use the three named Google Benchmark boundaries and
+the FPGA core cycle count. Keep UART round-trip time separate, and do not state
+a generic speedup across asymmetric boundaries.

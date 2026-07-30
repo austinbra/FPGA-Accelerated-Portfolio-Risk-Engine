@@ -2,7 +2,7 @@
 
 Hardware parity is not the same as financial accuracy, and product usefulness is a third question.
 
-This fork uses three separate gates:
+This continued project uses three separate gates:
 
 1. **Parity:** does RTL equal the C++ FPGA-style mirror?
 2. **Kernel accuracy:** how far is the FPGA method from a high-precision financial reference?
@@ -69,7 +69,7 @@ These metrics matter because LSM can fail silently: a final price can look plaus
 
 ## Final Kernel Contract
 
-This is the C++/RTL financial contract inherited by the product fork:
+This is the shared C++/RTL financial contract:
 
 - PUT exercise dates: every simulated step `1..M-1`.
 - CALL exercise dates: suppressed while `q=0`.
@@ -139,7 +139,7 @@ python scripts\accuracy_study.py --preset smoke --paths-list 4096,8192,16384 --s
 
 ## What Accuracy Does Not Claim Yet
 
-This fork does not yet claim:
+This project does not claim:
 
 - production market-maker bps across all options,
 - dividend yield support,

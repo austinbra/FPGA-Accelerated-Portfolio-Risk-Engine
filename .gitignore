@@ -98,13 +98,11 @@ tclapp/
 # Simulation debug traces
 *_trace.txt
 
-# Obsidian vault (local knowledge base, not version-controlled)
+# Private project notes, editor memory, and optional scratch
+.ai/
+.user/
+.obsidian/
 vault/
-
-# Maintainer-only private roadmap
-.user/ROADMAP_PRIVATE.md
-
-# Optional scratch (never commit secrets or keys)
 local/
 *.local.md
 .env
@@ -112,10 +110,8 @@ local/
 secrets/
 
 # -------------------------
-# 6) Legacy editor-local AI workspace
+# 6) Editor-local workspaces
 # -------------------------
-# The active repo-local AI workspace is `.ai/`.
-# Keep old Cursor-created scratch ignored if it reappears.
 .cursor/*
 !.cursor/README.md
 .specstory/

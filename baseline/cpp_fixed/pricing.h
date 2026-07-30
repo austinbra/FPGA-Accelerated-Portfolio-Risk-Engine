@@ -43,5 +43,7 @@ void multiExerciseInductionRtlMirror(
     int32_t& price_out,
     bool isPut
 );
+// Precondition: N > 0, M > 0, and every path uses the same valuation spot in
+// S[0], as produced by simulatePaths.
 
 #endif

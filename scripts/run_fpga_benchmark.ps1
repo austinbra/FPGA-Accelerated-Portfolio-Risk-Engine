@@ -2,7 +2,12 @@ param(
     [string]$Port = "",
     [int]$Baud = 115200,
     [string]$ParamFile = "",
-    [double]$FclkHz = 83333333.0,
+    [double]$FclkHz = 100000000.0,
+    [int]$NumLanes = 4,
+    [ValidateSet("Single", "Multi")]
+    [string]$ExerciseMode = "Multi",
+    [int]$Repetitions = 1,
+    [string]$Bit = "",
     [switch]$SkipProgram,
     [switch]$SkipCpu,
     [switch]$BuildCpu
@@ -13,10 +18,20 @@ $repo = Split-Path $PSScriptRoot -Parent
 Set-Location $repo
 
 if (-not $ParamFile) {
-    $ParamFile = Join-Path $repo "baseline\cpp_fixed\params_example.txt"
+    $ParamFile = Join-Path $repo "baseline\cpp_fixed\params_latency_1024x4.txt"
 }
 if (-not (Test-Path $ParamFile)) {
     throw "Param file not found: $ParamFile"
+}
+if (@(1, 2, 4, 8) -notcontains $NumLanes) {
+    throw "NumLanes must be one of 1, 2, 4, or 8"
+}
+
+if (-not $Bit) {
+    if ($ExerciseMode -ne "Multi" -or $NumLanes -ne 4) {
+        throw "Non-default ExerciseMode/NumLanes requires -Bit pointing to the matching bitstream"
+    }
+    $Bit = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_10ns\arty_a7_qmc_multi.bit"
 }
 
 if (-not $Port) {
@@ -35,7 +50,7 @@ if (-not $Port) {
 
 if (-not $SkipProgram) {
     Write-Host ">>> Programming Arty A7-100T ..."
-    & (Join-Path $PSScriptRoot "program_arty_a7.ps1")
+    & (Join-Path $PSScriptRoot "program_arty_a7.ps1") -Bit $Bit
 }
 
 $target = if ($SkipCpu) { "fpga" } else { "both" }
@@ -47,11 +62,14 @@ $args = @(
     "--param-file", $ParamFile,
     "--port", $Port,
     "--baud", "$Baud",
-    "--fpga-fclk-hz", ("{0:F0}" -f $FclkHz)
+    "--fpga-fclk-hz", ("{0:F0}" -f $FclkHz),
+    "--num-lanes", "$NumLanes",
+    "--exercise-mode", $ExerciseMode.ToLowerInvariant(),
+    "--fpga-repetitions", "$Repetitions"
 )
 if ($BuildCpu) { $args += "--build-cpu" }
 
-Write-Host ">>> Running UART benchmark on $Port @ $Baud (fclk=$FclkHz Hz) ..."
+Write-Host ">>> Running UART benchmark on $Port @ $Baud (fclk=$FclkHz Hz, lanes=$NumLanes, exercise=$ExerciseMode) ..."
 & python @args
 if ($LASTEXITCODE -ne 0) {
     throw "uart_host.py exited with code $LASTEXITCODE"

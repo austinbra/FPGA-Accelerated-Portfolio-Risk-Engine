@@ -25,8 +25,8 @@ int main(int argc, char *argv[])
         std::cerr << "Invalid arguments.\n";
         std::cerr << "Usage:\n"
                   << "  --input-file <path> Parameter file (key=value lines)\n"
-                  << "  --paths   <int>     Number of simulated paths (e.g., 10000)\n"
-                  << "  --steps   <int>     Number of time steps (e.g., 50)\n"
+                  << "  --paths   <int>     Number of simulated paths (e.g., 1024)\n"
+                  << "  --steps   <int>     Number of time steps (e.g., 12)\n"
                   << "  --S0      <float>   Spot price (e.g., 100.0)\n"
                   << "  --K       <float>   Strike price (e.g., 100.0)\n"
                   << "  --r       <float>   Risk-free rate (e.g., 0.05)\n"
