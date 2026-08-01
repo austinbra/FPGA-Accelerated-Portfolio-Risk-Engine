@@ -193,7 +193,7 @@ says 10.5 ns while the netlist still contains a 100 MHz core.
 | Board | Configuration | Period | WNS | WHS | LUT | Registers | DSP | BRAM |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | Arty A7-100T | multi, 4 lanes | 9.500 ns | +0.121 ns | +0.008 ns | 44,768 | 49,241 | 180 | 66 |
-| Arty S7-50 | multi, 2 lanes | 10.500 ns | +0.165 ns | +0.011 ns | 30,243 | 36,779 | 116 | 65 |
+| Arty S7-50 | multi, 2 lanes | 10.500 ns | +0.013 ns | +0.013 ns | 30,310 | 36,816 | 116 | 65 |
 
 TNS and THS are zero for both canonical routes. Route reports contain no
 failed, unrouted, partially routed, or overlapping nets.
@@ -244,8 +244,10 @@ with FPGA core time. The response returns the price and a 64-bit internal cycle
 counter so those intervals can be reported separately.
 
 The corrected S7-50 image returned raw price 391,343 and 159,398 cycles in all
-30 physical repetitions. Core time was 1.673679 ms; guarded UART transport
-p50/p95/p99 was 31.981/32.764/33.207 ms.
+100 physical repetitions. Core time was 1.673679 ms; zero-gap UART transport
+p50/p95/p99 was 15.974/16.147/16.240 ms. The former 2 ms inter-word workaround
+masked a host bug: pyserial's timeout was being reassigned after transmit,
+reconfiguring the Windows COM handle while the FTDI could still be active.
 
 ## Evidence Hierarchy
 

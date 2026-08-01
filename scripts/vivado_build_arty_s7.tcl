@@ -193,6 +193,10 @@ foreach m $mem_files {
 add_files -fileset constrs_1 -norecurse $gen_xdc
 
 set_property top arty_s7_option_pricer_top [get_filesets sources_1]
+if {[info exists ::env(VIVADO_UART_DIAGNOSTIC)] && ($::env(VIVADO_UART_DIAGNOSTIC) eq "1")} {
+    set_property verilog_define {UART_PHYSICAL_DIAGNOSTIC} [get_filesets sources_1]
+    puts "INFO: UART_PHYSICAL_DIAGNOSTIC enabled."
+}
 set top_generics [list CORE_CLKOUT_DIVIDE_F=$clock_literal CORE_CLK_FREQ_HZ=$core_freq_hz]
 if {$multi_exercise} {
     lappend top_generics MULTI_EXERCISE=1 NUM_LANES=$num_lanes

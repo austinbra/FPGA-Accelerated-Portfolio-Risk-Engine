@@ -7,14 +7,16 @@ module uart_rx #(
     input  logic rst_n,
     input  logic rx,
     output logic [7:0] rx_data,
-    output logic       rx_valid
+    output logic       rx_valid,
+    output logic       framing_error
 );
 
-    localparam int CLKS_PER_BIT = CLK_FREQ_HZ / BAUD_RATE;
-    localparam int MID_SAMPLE   = CLKS_PER_BIT / 2;
+    localparam int CLKS_PER_BIT = (CLK_FREQ_HZ + BAUD_RATE / 2) / BAUD_RATE;
+    localparam int MID_SAMPLE    = CLKS_PER_BIT / 2;
 
-    typedef enum logic [2:0] {
-        IDLE, START, DATA, STOP, READY
+
+    typedef enum logic [1:0] {
+        IDLE, START, DATA, STOP
     } state_t;
 
     state_t state;
@@ -22,9 +24,12 @@ module uart_rx #(
     logic [2:0] bit_index;
     logic [7:0] rx_shift;
     logic       rx_valid_r;
+    logic       framing_error_r;
+
     (* ASYNC_REG = "TRUE" *) logic [1:0] rx_sync_ff;
 
     assign rx_valid = rx_valid_r;
+    assign framing_error = framing_error_r;
 
     // The FTDI RX line is asynchronous to the generated core clock. Two
     // colocated stages prevent a metastable first sample from reaching the
@@ -46,8 +51,11 @@ module uart_rx #(
             rx_shift    <= 0;
             rx_data     <= 0;
             rx_valid_r  <= 0;
+            framing_error_r <= 0;
+
         end else begin
             rx_valid_r <= 0;  // default: deassert valid unless set later
+            framing_error_r <= 0;
 
             case (state)
                 IDLE: begin
@@ -58,7 +66,7 @@ module uart_rx #(
                 end
 
                 START: begin
-                    if (clk_count == MID_SAMPLE) begin
+                    if (clk_count == MID_SAMPLE - 1) begin
                         if (rx_sync == 0) begin
                             clk_count <= 0;
                             state     <= DATA;
@@ -73,9 +81,9 @@ module uart_rx #(
                     if (clk_count == CLKS_PER_BIT - 1) begin
                         clk_count <= 0;
                         rx_shift[bit_index] <= rx_sync;
-                        if (bit_index == 7)
+                        if (bit_index == 7) begin
                             state <= STOP;
-                        else
+                        end else
                             bit_index <= bit_index + 1;
                     end else
                         clk_count <= clk_count + 1;
@@ -84,21 +92,18 @@ module uart_rx #(
                 STOP: begin
                     if (clk_count == CLKS_PER_BIT - 1) begin
                         clk_count <= 0;
-                        // Reject framing errors instead of accepting a byte
-                        // and treating a later data bit as the next start.
-                        if (rx_sync)
-                            state <= READY;
-                        else
-                            state <= IDLE;
+                        state <= IDLE;
+                        if (rx_sync) begin
+                            rx_data <= rx_shift;
+                            rx_valid_r <= 1'b1;
+                        end else begin
+                            framing_error_r <= 1'b1;
+                        end
                     end else
                         clk_count <= clk_count + 1;
                 end
 
-                READY: begin
-                    rx_data    <= rx_shift;
-                    rx_valid_r <= 1;  // one-cycle pulse
-                    state      <= IDLE;
-                end
+                default: state <= IDLE;
             endcase
         end
     end

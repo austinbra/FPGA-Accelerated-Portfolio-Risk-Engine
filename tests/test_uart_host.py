@@ -24,11 +24,21 @@ class FakeSerial:
     def __init__(self, data, max_chunk=3):
         self.data = bytearray(data)
         self.max_chunk = max_chunk
-        self.timeout = None
+        self._timeout = None
+        self.timeout_assignments = 0
         self.writes = bytearray()
         self.write_chunks = []
         self.closed = False
         self.reset_count = 0
+
+    @property
+    def timeout(self):
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value):
+        self.timeout_assignments += 1
+        self._timeout = value
 
     def reset_input_buffer(self):
         # Preloaded bytes model future device responses, not stale input.
@@ -84,9 +94,38 @@ class UartHostTests(unittest.TestCase):
         self.assertEqual(first.core_cycles, 90233)
         self.assertEqual(second.price_raw, first.price_raw)
         self.assertEqual(len(fake.writes), 64)
-        self.assertEqual(len(fake.write_chunks), 16)
-        self.assertTrue(all(len(chunk) == 4 for chunk in fake.write_chunks))
+        self.assertEqual(len(fake.write_chunks), 2)
+        self.assertTrue(all(len(chunk) == 32 for chunk in fake.write_chunks))
+        self.assertEqual(fake.timeout_assignments, 0)
         self.assertTrue(fake.closed)
+
+    def test_legacy_word_gap_uses_eight_writes(self):
+        fake = FakeSerial(response_bytes(), max_chunk=64)
+        sleeps = []
+        session = uart_host.FpgaSession(
+            "FAKE", timeout_s=0.1, num_lanes=4,
+            serial_factory=Factory(fake),
+            request_word_gap_s=0.002,
+            serial_open_settle_s=0.0,
+            sleeper=sleeps.append,
+        )
+        session.run_job(PARAMS)
+        self.assertEqual([len(chunk) for chunk in fake.write_chunks], [4] * 8)
+        self.assertEqual(sleeps, [0.002] * 8)
+
+    def test_framing_diagnostic_is_decoded_before_echo(self):
+        diagnostic = struct.pack("<4I", 0xBADF0006, 0, 0, 0)
+        fake = FakeSerial(diagnostic, max_chunk=2)
+        session = uart_host.FpgaSession(
+            "FAKE", timeout_s=0.1, num_lanes=4,
+            serial_factory=Factory(fake),
+            serial_open_settle_s=0.0,
+        )
+        with self.assertRaisesRegex(
+            uart_host.UartProtocolError,
+            "word=1 accepted_bytes=2",
+        ):
+            session.run_job(PARAMS)
 
     def test_documented_fpga_errors_are_decoded(self):
         for code in (uart_host.CORE_TIMEOUT, uart_host.INVALID_WORKLOAD):

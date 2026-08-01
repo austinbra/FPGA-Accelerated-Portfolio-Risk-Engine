@@ -111,6 +111,6 @@ directory. In particular, old 72,394/236,362 cycle rows, pre-fix routes,
 pre-fix bitstreams, and the S7 zero-price physical run are excluded.
 
 The corrected S7 bitstream now returns the expected raw price and stable cycle
-count on physical hardware. Its 30-run parity and transport record is kept
+count on physical hardware. Its 100-run zero-gap parity and transport record is kept
 separate from this generated A7 post-route report in
 [`results/physical/README.md`](../physical/README.md).

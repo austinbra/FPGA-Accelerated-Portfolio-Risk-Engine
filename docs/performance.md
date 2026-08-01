@@ -82,7 +82,7 @@ inferred from these rows.
 | Target | Core period/frequency | WNS | WHS | LUT | Registers | DSP | BRAM |
 |---|---|---:|---:|---:|---:|---:|---:|
 | A7-100T, 4 lanes | 9.500 ns / 105.263 MHz | +0.121 ns | +0.008 ns | 44,768 (70.61%) | 49,241 (38.83%) | 180 (75.00%) | 66 (48.89%) |
-| S7-50, 2 lanes | 10.500 ns / 95.238 MHz | +0.165 ns | +0.011 ns | 30,243 (92.77%) | 36,779 (56.41%) | 116 (96.67%) | 65 (86.67%) |
+| S7-50, 2 lanes | 10.500 ns / 95.238 MHz | +0.013 ns | +0.013 ns | 30,310 (92.98%) | 36,816 (56.47%) | 116 (96.67%) | 65 (86.67%) |
 
 Both have TNS = 0, THS = 0, zero setup/hold failing endpoints, and complete
 routes.
@@ -107,7 +107,7 @@ tested Vivado 2025.1 strategy and seed:
 | Target | Passing selection | Adjacent faster failure |
 |---|---|---|
 | A7-100T, 4 lanes | 9.500 ns, WNS +0.121 ns | 9.375 ns, WNS -0.153 ns, TNS -14.851 ns |
-| S7-50, 2 lanes | 10.500 ns, WNS +0.165 ns | 10.375 ns, WNS -0.228 ns, TNS -1.768 ns |
+| S7-50, 2 lanes | 10.500 ns, WNS +0.013 ns | 10.375 ns, WNS -0.228 ns, TNS -1.768 ns |
 
 These bracket the selected configurations. They are not universal silicon
 `fmax` guarantees.
@@ -169,18 +169,20 @@ Release executable because no benchmark C++ source changed.
 
 ## Physical-Board Status
 
-JTAG identified `xc7s50`, and the corrected 2-lane S7 bitstream passed 30
+JTAG identified `xc7s50`, and the corrected 2-lane S7 bitstream passed 100
 physical repetitions of the canonical 1,024 x 4 multi-exercise PUT:
 
 - CPU and FPGA raw price: 391,343, bit-exact;
 - FPGA core cycles: 159,398 in every repetition;
 - core interval at 95,238,095 Hz: 1.673679 ms;
-- UART transport p50/p95/p99: 31.981/32.764/33.207 ms.
+- zero-gap UART transport p50/p95/p99: 15.974/16.147/16.240 ms.
 
-The host uses guarded 32-bit request writes because unpaced FTDI bursts caused
-framing errors. That guard is included only in transport time. The previous
-zero-price run remains excluded, and there is no physical A7 measurement in
-this pass.
+The host writes all 32 request bytes together. The earlier apparent need for a
+2 ms inter-word guard was a host bug: changing pyserial's `timeout` immediately
+after `write()` reconfigured the Windows COM handle while FTDI transmit could
+still be active. The fixed read loop leaves the open-time timeout unchanged.
+The previous zero-price run remains excluded, and there is no physical A7
+measurement in this pass.
 
 ## Claim Boundary
 

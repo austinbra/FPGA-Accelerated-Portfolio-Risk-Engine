@@ -40,6 +40,8 @@ module uart_input_handler #(
     // UART rx signals
     logic [31:0] rx_data;
     logic rx_valid;
+    logic rx_framing_error;
+    logic [1:0] rx_framing_error_byte_count;
     
     // UART tx signals
     logic tx_ready;
@@ -70,14 +72,17 @@ assign batch_complete_pulse = (state == S_RECEIVE) && rx_valid_rising && (word_c
             word_cnt <= 0;
         end else begin
             state <= next_state;
-            if (state == S_RECEIVE && rx_valid_rising) begin
-            reg_array[word_cnt] <= rx_data;
-            $display("Stored word %0d = 0x%08x", word_cnt, rx_data);
-            word_cnt <= word_cnt + 1;
-        end
+            if (rx_framing_error) begin
+                state <= S_RECEIVE;
+                word_cnt <= 0;
+            end else if (state == S_RECEIVE && rx_valid_rising) begin
+                reg_array[word_cnt] <= rx_data;
+                $display("Stored word %0d = 0x%08x", word_cnt, rx_data);
+                word_cnt <= word_cnt + 1;
+            end
 
-        if (state == S_WAIT_READY && batch_ready)
-            word_cnt <= 0;
+            if (state == S_WAIT_READY && batch_ready)
+                word_cnt <= 0;
         end
     end
     
@@ -119,7 +124,9 @@ end
         .rst_n (rst_n),
         .rx(rx),
         .valid_out(rx_valid),
-        .data_out (rx_data)
+        .data_out (rx_data),
+        .framing_error_out(rx_framing_error),
+        .framing_error_byte_count_out(rx_framing_error_byte_count)
     );
     
 // ==============================
@@ -166,6 +173,15 @@ end
 `endif
             end
 
+`ifdef UART_PHYSICAL_DIAGNOSTIC
+            if (rx_framing_error) begin
+                if (!result_pending && !sending_result) begin
+                    result_buf[0] <= {16'hBADF, 11'd0, word_cnt,
+                                      rx_framing_error_byte_count};
+                    result_pending <= 1'b1;
+                end
+            end else
+`endif
             if (result_valid) begin
                 result_buf[0] <= 32'hABCD0001;
                 result_buf[1] <= result_price;

@@ -22,6 +22,7 @@ from typing import Mapping, Sequence
 Q16_SCALE = 1 << 16
 INT32_MIN, INT32_MAX = -(1 << 31), (1 << 31) - 1
 RESULT_MARKER = 0xABCD0001
+FRAMING_DIAGNOSTIC_PREFIX = 0xBADF
 CORE_TIMEOUT = 0xDEAD0001
 INVALID_WORKLOAD = 0xDEAD0002
 FPGA_MAX_PATHS, FPGA_MAX_STEPS = 1024, 50
@@ -177,8 +178,9 @@ def _read_exact(stream, size: int, deadline: float, clock=time.monotonic) -> byt
             raise TimeoutError(
                 f"UART deadline expired after {len(chunks)} of {size} bytes"
             )
-        if hasattr(stream, "timeout"):
-            stream.timeout = max(0.001, min(remaining, 0.05))
+        # The serial port is opened with a bounded read timeout. Do not assign
+        # stream.timeout here: pyserial reconfigures the Windows COM handle,
+        # which can disturb an FTDI transmission that has just been queued.
         chunk = stream.read(size - len(chunks))
         if chunk:
             chunks.extend(chunk)
@@ -190,15 +192,19 @@ class FpgaSession:
 
     def __init__(self, port, baud=115200, timeout_s=2.0, num_lanes=4,
                  serial_factory=None, clock=time.monotonic,
-                 request_word_gap_s=0.002, sleeper=time.sleep):
+                 request_word_gap_s=0.0, serial_open_settle_s=0.1,
+                 sleeper=time.sleep):
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
         if request_word_gap_s < 0:
             raise ValueError("request_word_gap_s cannot be negative")
+        if serial_open_settle_s < 0:
+            raise ValueError("serial_open_settle_s cannot be negative")
         self.port, self.baud = port, int(baud)
         self.timeout_s, self.num_lanes = float(timeout_s), int(num_lanes)
         self._serial_factory, self._clock = serial_factory, clock
         self.request_word_gap_s, self._sleeper = float(request_word_gap_s), sleeper
+        self.serial_open_settle_s = float(serial_open_settle_s)
         self._serial = None
 
     def __enter__(self):
@@ -220,8 +226,13 @@ class FpgaSession:
         self._serial = factory(
             port=self.port, baudrate=self.baud, timeout=min(self.timeout_s, 0.05)
         )
+        # Purge first, then leave the FTDI link idle-high before the first
+        # request. On Windows, placing reset_input_buffer immediately before
+        # write() makes the first USB transfer phase-sensitive on this board.
         if hasattr(self._serial, "reset_input_buffer"):
             self._serial.reset_input_buffer()
+        if self.serial_open_settle_s:
+            self._sleeper(self.serial_open_settle_s)
         return self._serial
 
     def close(self):
@@ -235,13 +246,43 @@ class FpgaSession:
         stream = self._open()
         started = self._clock()
         deadline = started + self.timeout_s
-        for word in payload:
-            stream.write(struct.pack("<i", word))
+        if self.request_word_gap_s:
+            for word in payload:
+                written = stream.write(struct.pack("<i", word))
+                if written != 4:
+                    raise UartProtocolError(
+                        f"UART wrote {written} of 4 request bytes"
+                    )
+                if hasattr(stream, "flush"):
+                    stream.flush()
+                self._sleeper(self.request_word_gap_s)
+        else:
+            request_bytes = struct.pack("<8i", *payload)
+            written = stream.write(request_bytes)
+            if written != len(request_bytes):
+                raise UartProtocolError(
+                    f"UART wrote {written} of {len(request_bytes)} request bytes"
+                )
             if hasattr(stream, "flush"):
                 stream.flush()
-            if self.request_word_gap_s:
-                self._sleeper(self.request_word_gap_s)
-        echoes = struct.unpack("<8i", _read_exact(stream, 32, deadline, self._clock))
+        first_echo = _read_exact(stream, 4, deadline, self._clock)
+        first_word = struct.unpack("<I", first_echo)[0]
+        if first_word >> 16 == FRAMING_DIAGNOSTIC_PREFIX:
+            diagnostic = struct.unpack(
+                "<4I",
+                first_echo + _read_exact(stream, 12, deadline, self._clock),
+            )
+            location = diagnostic[0] & 0x1F
+            word_index = (location >> 2) & 0x7
+            accepted_bytes = location & 0x3
+            raise UartProtocolError(
+                "FPGA UART framing diagnostic: "
+                f"word={word_index} accepted_bytes={accepted_bytes} "
+                f"packet={[f'0x{word:08X}' for word in diagnostic]}"
+            )
+        echoes = struct.unpack(
+            "<8i", first_echo + _read_exact(stream, 28, deadline, self._clock)
+        )
         if echoes != payload:
             raise UartProtocolError(
                 f"UART echo mismatch: expected {payload!r}, received {echoes!r}"
@@ -390,7 +431,11 @@ def _run_sweep(args, params, baseline_dir):
                 candidate = dict(params)
                 candidate["paths"] = paths
                 validate_fpga_params(candidate, args.num_lanes)
-            session = FpgaSession(args.port, args.baud, args.timeout, args.num_lanes)
+            session = FpgaSession(
+                args.port, args.baud, args.timeout, args.num_lanes,
+                request_word_gap_s=args.request_word_gap_ms / 1000.0,
+                serial_open_settle_s=args.serial_open_settle_ms / 1000.0,
+            )
         print("\n" + "=" * 60)
         print(f"CONVERGENCE SWEEP (exercise_mode={args.exercise_mode})")
         print("=" * 60)
@@ -438,6 +483,14 @@ def main():
     parser.add_argument("--port", default="COM4")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=2.0)
+    parser.add_argument(
+        "--request-word-gap-ms", type=float, default=0.0,
+        help="legacy idle time between 32-bit request words",
+    )
+    parser.add_argument(
+        "--serial-open-settle-ms", type=float, default=100.0,
+        help="one-time delay after opening and clearing the serial port",
+    )
     parser.add_argument("--fpga-fclk-hz", type=float, default=105_263_158.0)
     parser.add_argument("--num-lanes", type=int, default=4,
                         help="lane count compiled into the physical/virtual bitstream")
@@ -457,6 +510,10 @@ def main():
         raise ValueError("--fpga-repetitions must be at least 1")
     if args.fpga_fclk_hz < 0:
         raise ValueError("--fpga-fclk-hz cannot be negative")
+    if args.request_word_gap_ms < 0:
+        raise ValueError("--request-word-gap-ms cannot be negative")
+    if args.serial_open_settle_ms < 0:
+        raise ValueError("--serial-open-settle-ms cannot be negative")
     repo_root = Path(__file__).resolve().parents[1]
     baseline_dir = repo_root / "baseline" / "cpp_fixed"
     if args.mode in ("benchmark", "sweep"):
@@ -517,7 +574,11 @@ def main():
 
     fpga_results = []
     if args.target in ("fpga", "both"):
-        with FpgaSession(args.port, args.baud, args.timeout, args.num_lanes) as session:
+        with FpgaSession(
+            args.port, args.baud, args.timeout, args.num_lanes,
+            request_word_gap_s=args.request_word_gap_ms / 1000.0,
+            serial_open_settle_s=args.serial_open_settle_ms / 1000.0,
+        ) as session:
             for _ in range(args.fpga_repetitions):
                 fpga_results.append(session.run_job(params))
         first = fpga_results[0]

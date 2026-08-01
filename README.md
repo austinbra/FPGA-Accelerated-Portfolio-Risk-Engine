@@ -30,7 +30,7 @@ Consequences:
   derived from them are invalid for the corrected kernel.
 - The earlier S7 board response with price zero is not pricing parity. It showed
   that programming worked, but it used the bad divider image.
-- The rebuilt S7 image now has 30-run physical raw-price and cycle parity; its
+- The rebuilt S7 image now has 100-run physical raw-price and cycle parity; its
   measured UART transport distribution is reported separately from core time.
 - C++ raw prices, the independent financial-reference study, Sobol data, UART
   packet format, and algorithm-level work that did not depend on the bad RTL
@@ -77,7 +77,7 @@ physical input clock to 10.000 ns; changing the XDC to 10.5 ns does not create a
 | Canonical project | Device/configuration | Core clock | WNS | WHS | LUT | Registers | DSP | BRAM |
 |---|---|---:|---:|---:|---:|---:|---:|---:|
 | `arty_a7_100_multi_lanes4_9p5ns_rowopt` | XC7A100T, multi, 4 lanes | 105.263 MHz | +0.121 ns | +0.008 ns | 44,768 (70.61%) | 49,241 (38.83%) | 180 (75.00%) | 66 (48.89%) |
-| `arty_s7_50_multi_lanes2_10p5ns_rowopt` | XC7S50, multi, 2 lanes | 95.238 MHz | +0.165 ns | +0.011 ns | 30,243 (92.77%) | 36,779 (56.41%) | 116 (96.67%) | 65 (86.67%) |
+| `arty_s7_50_multi_lanes2_10p5ns_rowopt` | XC7S50, multi, 2 lanes | 95.238 MHz | +0.013 ns | +0.013 ns | 30,310 (92.98%) | 36,816 (56.47%) | 116 (96.67%) | 65 (86.67%) |
 
 Both have TNS = 0, THS = 0, zero setup/hold failing endpoints, and a complete
 routed design. They are the only canonical GUI projects for this release.
@@ -191,15 +191,17 @@ owned by another client, then run:
 
 ```powershell
 .\scripts\program_arty_s7.ps1 -TimeoutSeconds 600
-python src\uart_host.py --mode benchmark --target both --param-file baseline\cpp_fixed\params_latency_1024x4.txt --exercise-mode multi --num-lanes 2 --port COM4 --fpga-fclk-hz 95238095 --fpga-repetitions 30 --build-cpu
+python src\uart_host.py --mode benchmark --target both --param-file baseline\cpp_fixed\params_latency_1024x4.txt --exercise-mode multi --num-lanes 2 --port COM4 --fpga-fclk-hz 95238095 --fpga-repetitions 100 --build-cpu
 ```
 
 The physical S7 run returned raw price `391343` and `159398` core cycles in all
-30 repetitions. Core time is `1.673679 ms`; transport p50/p95/p99 was
-`31.981/32.764/33.207 ms`. The host sends each request word as a separate
-guarded write because unpaced FTDI bursts produced framing errors. This guard is
-included in transport time and never in core time. Treat a different raw price
-or cycle count as a failed physical parity check.
+100 repetitions. Core time is `1.673679 ms`; zero-gap transport p50/p95/p99 was
+`15.974/16.147/16.240 ms`. The host sends the complete 32-byte request in one
+write. Earlier framing symptoms came from `_read_exact()` assigning pyserial's
+`timeout` immediately after transmit, which reconfigured the Windows COM handle
+while the FTDI could still be shifting data. The fixed host configures its read
+timeout only when opening the port; no inter-word guard is required. Treat a
+different raw price or cycle count as a failed physical parity check.
 
 The FPGA sends eight echoed parameter words followed by four result words:
 
@@ -254,6 +256,7 @@ vivado_build/             ignored generated projects for validated configuration
 - [`docs/performance.md`](docs/performance.md): corrected timing and benchmark interpretation.
 - [`docs/validation.md`](docs/validation.md): evidence hierarchy and release gates.
 - [`docs/accuracy.md`](docs/accuracy.md): financial-reference methodology.
+- [`docs/waveform-debugging.md`](docs/waveform-debugging.md): GTKWave UART lab and physical ILA guidance.
 - [`baseline/cpp_fixed/README.md`](baseline/cpp_fixed/README.md): C++ mirror and Google Benchmark guide.
 - [`results/claims/README.md`](results/claims/README.md): reproducible evidence collector.
 

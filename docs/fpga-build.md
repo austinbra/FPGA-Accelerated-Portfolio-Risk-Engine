@@ -281,8 +281,8 @@ The canonical worst setup paths are:
 
 - A7 9.5 ns: `lane_sumy_reg[2][2]` to `reg_mat_reg[3][24]`,
   9.094 ns data delay, 23 logic levels, and +0.121 ns slack.
-- S7 10.5 ns: `state_reg[3]/C` to bank-1 spot-memory `ADDRBWRADDR[8]`,
-  9.602 ns data delay, 86.5% route delay, and +0.165 ns slack.
+- S7 10.5 ns: `drift_const_reg_reg[1]/C` to lane-1 exponential-stage
+  `s1_addr_reg[8]/D`, 10.370 ns data delay, 16 logic levels, 55.8% route delay, and +0.013 ns slack.
 
 A path with mostly route delay suggests congestion/fanout/placement. A path with
 many logic levels suggests pipelining or algebraic restructuring. Always inspect
@@ -349,7 +349,7 @@ Current search evidence:
 
 | Target | Passing point | Adjacent evidence | Decision |
 |---|---:|---|---|
-| S7, 2 lanes | 10.500 ns, WNS +0.165 | 10.375 ns, WNS -0.228 | retain 10.500 ns |
+| S7, 2 lanes | 10.500 ns, WNS +0.013 | 10.375 ns, WNS -0.228 | retain 10.500 ns |
 | A7, 4 lanes | 9.500 ns, WNS +0.121 | 9.375 ns, WNS -0.153 | retain 9.500 ns |
 
 Both adjacent failures were fully routed. If RTL, strategy, Vivado version, or
@@ -391,7 +391,7 @@ Current hashes:
 
 ```text
 A7 9.5 ns:  708C312F611909598B9B509B57F08D07C3A247CB9FC0C15820CAD5B7557CE8EF
-S7 10.5 ns: 729F8D9099A1A84B81C4D784FF7EF18343B72C364C897557F537692A173C5178
+S7 10.5 ns: 575EFA8E2EB164471E861DF37887BCB30D877609D557B34B5EB39BAA3731A874
 ```
 
 A hash identifies a file; it does not by itself prove timing or function.
@@ -485,10 +485,9 @@ for 1,024 x 4 and 293,790 cycles for 1,024 x 12.
 
 ## 16. Understand the UART Words
 
-The host sends eight 32-bit parameter words as separate guarded writes. This
-avoids the framing errors observed with an unpaced FTDI burst; the guard remains
-part of transport time, not core time. The FPGA echoes all eight so byte
-alignment and endianness can be checked. It then sends four result words:
+The host packs the eight 32-bit parameter words into one 32-byte zero-gap write.
+The FPGA echoes all eight so byte alignment and endianness can be checked. It
+then sends four result words:
 
 ```text
 0: 0xABCD0001                    completion marker
@@ -521,14 +520,14 @@ python src\uart_host.py `
   --num-lanes 2 `
   --port COM4 `
   --fpga-fclk-hz 95238095 `
-  --fpga-repetitions 30
+  --fpga-repetitions 100
 ```
 
 Accept the run only if every repetition returns the same raw price and cycle
 count. Report transport p50/p95/p99 separately from core latency.
 
-The corrected physical S7 run passed 30/30 with raw price 391,343, 159,398
-cycles, 1.673679 ms core time, and 31.981/32.764/33.207 ms transport
+The corrected physical S7 run passed 100/100 with raw price 391,343, 159,398
+cycles, 1.673679 ms core time, and 15.974/16.147/16.240 ms transport
 p50/p95/p99.
 
 ## 18. Common Failure Modes
@@ -558,9 +557,10 @@ new project. The checked flow creates the project automatically.
 
 ### UART echo words are shifted or multiplied by powers of 256
 
-The wrong COM channel, baud, bitstream, or an unpaced custom sender can cause
-this. The checked host sends guarded 32-bit words. `--fpga-fclk-hz` converts
-cycles to seconds; it does not configure UART timing.
+The wrong COM channel, baud, bitstream, or a sender that reconfigures the COM
+handle while TX is active can cause this. The checked host uses one zero-gap
+32-byte write and does not mutate pyserial's timeout inside its read loop.
+`--fpga-fclk-hz` converts cycles to seconds; it does not configure UART timing.
 
 ### UART echo is correct but price is zero
 

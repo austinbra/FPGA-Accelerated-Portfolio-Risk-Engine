@@ -186,13 +186,13 @@ Project: vivado_build/arty_s7_50_multi_lanes2_10p5ns_rowopt/gui_post_synth/arty_
 Part: xc7s50csga324-1
 Mode/lanes: multi / 2
 Core: 10.500 ns, 95.238095 MHz
-WNS/TNS: +0.165 ns / 0.000 ns
-WHS/THS: +0.011 ns / 0.000 ns
-LUT: 30,243 / 32,600
-Registers: 36,779 / 65,200
+WNS/TNS: +0.013 ns / 0.000 ns
+WHS/THS: +0.013 ns / 0.000 ns
+LUT: 30,310 / 32,600
+Registers: 36,816 / 65,200
 DSP: 116 / 120
 BRAM: 65 / 75
-Bit SHA-256: 729F8D9099A1A84B81C4D784FF7EF18343B72C364C897557F537692A173C5178
+Bit SHA-256: 575EFA8E2EB164471E861DF37887BCB30D877609D557B34B5EB39BAA3731A874
 Adjacent faster build: 10.375 ns, WNS -0.228 ns, no bitstream
 ```
 
@@ -266,7 +266,7 @@ python src\uart_host.py `
   --num-lanes 2 `
   --port COM4 `
   --fpga-fclk-hz 95238095 `
-  --fpga-repetitions 30 `
+  --fpga-repetitions 100 `
   --build-cpu
 ```
 
@@ -276,14 +276,15 @@ return rather than silently replacing it with the model.
 ## Current Physical Status
 
 The checked programmer detected `xc7s50` and loaded the retained S7 image. All
-30 repetitions returned raw price 391,343 and 159,398 cycles. The physical core
-interval is 1.673679 ms; guarded UART transport p50/p95/p99 is
-31.981/32.764/33.207 ms.
+100 repetitions returned raw price 391,343 and 159,398 cycles. The physical core
+interval is 1.673679 ms; zero-gap UART transport p50/p95/p99 is
+15.974/16.147/16.240 ms.
 
 The UART receiver now uses a two-stage asynchronous synchronizer and rejects bad
-stop bits. The host sends each request word separately with a 2 ms guard because
-unpaced FTDI bursts produced framing errors. The guard is included in transport,
-not core time. The earlier zero-price image remains excluded.
+stop bits. The host now sends one 32-byte request write. Earlier unpaced failures
+were caused by `_read_exact()` mutating pyserial's `timeout` after transmit and
+thereby reconfiguring the Windows COM handle, not by a cable defect or a UART
+requirement for millisecond gaps. The earlier zero-price image remains excluded.
 
 ## Automated Python Regression
 
