@@ -2,7 +2,7 @@ param(
     [string]$Port = "",
     [int]$Baud = 115200,
     [string]$ParamFile = "",
-    [double]$FclkHz = 100000000.0,
+    [double]$FclkHz = 105263158.0,
     [int]$NumLanes = 4,
     [ValidateSet("Single", "Multi")]
     [string]$ExerciseMode = "Multi",
@@ -31,7 +31,7 @@ if (-not $Bit) {
     if ($ExerciseMode -ne "Multi" -or $NumLanes -ne 4) {
         throw "Non-default ExerciseMode/NumLanes requires -Bit pointing to the matching bitstream"
     }
-    $Bit = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_10ns\arty_a7_qmc_multi.bit"
+    $Bit = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_9p5ns_rowopt\arty_a7_qmc_multi.bit"
 }
 
 if (-not $Port) {

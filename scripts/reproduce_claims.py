@@ -37,7 +37,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 Q16_SCALE = 1 << 16
 SUCCESS_MARKER = 0xABCD0001
-DEFAULT_CLOCK_HZ = 100_000_000.0
+DEFAULT_CLOCK_HZ = 105_263_158.0
 DEFAULT_LANES = 4
 EXERCISE_MODE = "multi"
 OPTION_TYPE = "put"
@@ -70,8 +70,8 @@ class ClaimCase:
 
 
 CANONICAL_CASES = (
-    ClaimCase("put_1024x4_multi", 1024, 4, 391_343, 72_394),
-    ClaimCase("put_1024x12_multi", 1024, 12, 428_757, 236_362),
+    ClaimCase("put_1024x4_multi", 1024, 4, 391_343, 91_302),
+    ClaimCase("put_1024x12_multi", 1024, 12, 428_757, 293_790),
 )
 
 
@@ -191,18 +191,32 @@ def _snapshot_files(repo: Path, roots_and_patterns: Sequence[tuple[str, str]]) -
 
 
 def source_snapshot(repo: Path) -> dict[str, Any]:
-    """Fingerprint the exact C++ and routed-RTL inputs used by claim collection."""
+    """Fingerprint implementation, simulation, and C++ claim inputs."""
     rtl = _snapshot_files(
         repo,
         (
-            ("src", "*.sv"),
+            ("src/fpga_cfg_pkg.sv", "fpga_cfg_pkg.sv"),
+            ("src/helpers", "*.sv"),
+            ("src/math", "*.sv"),
+            ("src/steps", "*.sv"),
+            ("src/io", "*.sv"),
+            ("src/top", "*.sv"),
             ("src/gen", "*.mem"),
             ("fpga", "*.sv"),
             ("fpga", "*.mem"),
             ("constraints", "*.xdc"),
             ("scripts/vivado_build_arty_a7.tcl", "vivado_build_arty_a7.tcl"),
             ("scripts/run_vivado_build_arty_a7.ps1", "run_vivado_build_arty_a7.ps1"),
+            ("scripts/vivado_board_build_common.tcl", "vivado_board_build_common.tcl"),
             ("scripts/vivado_build_runner.py", "vivado_build_runner.py"),
+        ),
+    )
+    simulation = _snapshot_files(
+        repo,
+        (
+            ("src/sim", "*.sv"),
+            ("tb", "*.sv"),
+            ("scripts/run_tb_top_uart_safe.ps1", "run_tb_top_uart_safe.ps1"),
         ),
     )
     cpp = _snapshot_files(
@@ -227,9 +241,18 @@ def source_snapshot(repo: Path) -> dict[str, Any]:
         ),
     )
     combined = hashlib.sha256(
-        f"rtl={rtl['sha256']}\ncpp={cpp['sha256']}\n".encode("ascii")
+        (
+            f"rtl={rtl['sha256']}\n"
+            f"simulation={simulation['sha256']}\n"
+            f"cpp={cpp['sha256']}\n"
+        ).encode("ascii")
     ).hexdigest()
-    return {"combined_sha256": combined, "rtl": rtl, "cpp": cpp}
+    return {
+        "combined_sha256": combined,
+        "rtl": rtl,
+        "simulation": simulation,
+        "cpp": cpp,
+    }
 
 
 def parse_cpp_output(text: str) -> dict[str, Any]:
@@ -255,6 +278,11 @@ _XSIM_LINE = re.compile(
     r"\[VIRTUAL_A7\]\s+paths=(\d+)\s+steps=(\d+)\s+"
     r"core_cycles=(\d+)\s+price_raw=(0x[0-9a-fA-F]+)\s+"
     r"marker=(0x[0-9a-fA-F]+)"
+)
+_XSIM_BINDING = re.compile(
+    r"^DIVIDER_BINDING\s+model=(\S+)\s+work_library=(\S+)\s+"
+    r"divider_library=(\S+)\s+sha256=([0-9a-fA-F]{64})$",
+    re.MULTILINE,
 )
 
 
@@ -288,6 +316,36 @@ def parse_xsim_output(text: str, case: ClaimCase | None = None) -> dict[str, Any
         )
     version = re.search(r"\*{6}\s+xsim\s+v([^\s]+)", text, re.IGNORECASE)
     rows[0]["xsim_version"] = version.group(1) if version else None
+
+    bindings = list(_XSIM_BINDING.finditer(text))
+    if len(bindings) > 1:
+        raise EvidenceError(f"expected at most one DIVIDER_BINDING record; found {len(bindings)}")
+    if bindings:
+        binding = bindings[0]
+        rows[0]["divider_binding"] = {
+            "model": binding.group(1),
+            "work_library": binding.group(2),
+            "divider_library": binding.group(3),
+            "sha256": binding.group(4).lower(),
+        }
+    else:
+        rows[0]["divider_binding"] = None
+
+    binding_model = (rows[0]["divider_binding"] or {}).get("model")
+    if binding_model == "generated_vhdl":
+        rows[0]["divider_model"] = "generated_div_gen_behavioral_vhdl"
+    elif binding_model == "generated_netlist":
+        rows[0]["divider_model"] = "generated_div_gen_primitive_netlist"
+    elif binding_model == "behavioral_stub":
+        rows[0]["divider_model"] = "latency_calibrated_behavioral_stub"
+    elif "Divider model: generated div_gen behavioral VHDL" in text:
+        rows[0]["divider_model"] = "generated_div_gen_behavioral_vhdl"
+    elif "Divider model: generated div_gen primitive netlist" in text:
+        rows[0]["divider_model"] = "generated_div_gen_primitive_netlist"
+    elif "Divider model: latency-calibrated behavioral stub" in text:
+        rows[0]["divider_model"] = "latency_calibrated_behavioral_stub"
+    else:
+        rows[0]["divider_model"] = None
     rows[0]["price"] = rows[0]["price_raw_q16_16"] / Q16_SCALE
     return rows[0]
 
@@ -310,16 +368,25 @@ def parse_timing_report(text: str) -> dict[str, Any]:
     metadata = _report_metadata(text)
     summary = re.search(
         r"WNS\(ns\).*?\n\s*-+.*?\n\s*"
+        r"([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\s+(\d+)\s+\d+\s+"
         r"([-+]?\d+(?:\.\d+)?)\s+([-+]?\d+(?:\.\d+)?)\s+(\d+)",
         text,
         re.DOTALL,
     )
     if not summary:
         raise EvidenceError("could not parse Vivado design timing summary")
-    clock = re.search(
-        r"^sys_clk\s+\{[^}]+\}\s+([0-9.]+)\s+([0-9.]+)\s*$",
+    clock_rows = re.findall(
+        r"^\s*([A-Za-z0-9_./\[\]-]+)\s+\{[^}]+\}\s+"
+        r"([0-9.]+)\s+([0-9.]+)\s*$",
         text,
         re.MULTILINE,
+    )
+    clock = next(
+        (row for row in clock_rows if row[0] == "core_clk_unbuffered"),
+        next(
+            (row for row in clock_rows if row[0] == "sys_clk"),
+            next((row for row in clock_rows if "core" in row[0].lower()), None),
+        ),
     )
     constraints_met = bool(
         re.search(r"All user specified timing constraints are met", text)
@@ -329,9 +396,12 @@ def parse_timing_report(text: str) -> dict[str, Any]:
         "wns_ns": float(summary.group(1)),
         "tns_ns": float(summary.group(2)),
         "setup_failing_endpoints": int(summary.group(3)),
-        "clock_name": "sys_clk" if clock else None,
-        "clock_period_ns": float(clock.group(1)) if clock else None,
-        "clock_frequency_mhz": float(clock.group(2)) if clock else None,
+        "whs_ns": float(summary.group(4)),
+        "ths_ns": float(summary.group(5)),
+        "hold_failing_endpoints": int(summary.group(6)),
+        "clock_name": clock[0] if clock else None,
+        "clock_period_ns": float(clock[1]) if clock else None,
+        "clock_frequency_mhz": float(clock[2]) if clock else None,
         "all_constraints_met": constraints_met,
     }
 
@@ -560,7 +630,9 @@ def _xsim_plusargs(case: ClaimCase) -> str:
     return ",".join(f"{key}={value}" for key, value in values.items())
 
 
-def collect_xsim_runs(repo: Path, raw_dir: Path, timeout: int) -> dict[str, Any]:
+def collect_xsim_runs(
+    repo: Path, raw_dir: Path, timeout: int, divider_model: Path
+) -> dict[str, Any]:
     powershell = _powershell_executable()
     harness = repo / "scripts" / "run_tb_top_uart_safe.ps1"
     evidence: dict[str, Any] = {}
@@ -576,6 +648,8 @@ def collect_xsim_runs(repo: Path, raw_dir: Path, timeout: int) -> dict[str, Any]
             "-MultiExercise",
             "-NumLanes",
             str(DEFAULT_LANES),
+            "-VendorDividerModel",
+            os.fspath(divider_model),
             "-TestPlusargs",
             _xsim_plusargs(case),
             "-XsimTimeoutSeconds",
@@ -592,6 +666,7 @@ def collect_xsim_runs(repo: Path, raw_dir: Path, timeout: int) -> dict[str, Any]
         parsed["command"] = command
         parsed["source"] = os.fspath(raw_path)
         parsed["artifact_fingerprint"] = file_fingerprint(raw_path, repo)
+        parsed["divider_model_fingerprint"] = file_fingerprint(divider_model, repo)
         evidence[case.case_id] = parsed
     return evidence
 
@@ -622,14 +697,14 @@ def vivado_route_command(repo: Path, timeout: int, powershell: str) -> list[str]
         "-NumLanes",
         str(DEFAULT_LANES),
         "-ClockPeriodNs",
-        "10.0",
+        "9.5",
         "-TimeoutSeconds",
         str(timeout),
     ]
 
 
 def run_vivado_route(repo: Path, timeout: int) -> dict[str, Any]:
-    """Run the existing four-lane, 10 ns Artix-7 implementation flow."""
+    """Run the canonical four-lane, 9.5 ns Artix-7 implementation flow."""
     command = vivado_route_command(repo, timeout, _powershell_executable())
     started_at_ns = dt.datetime.now(dt.timezone.utc).timestamp() * 1e9
     result = _run(command, cwd=repo, timeout=timeout + 300)
@@ -841,7 +916,8 @@ def assemble_evidence(
             float(timing["clock_frequency_mhz"]),
             derived_frequency_mhz,
             rel_tol=0.0,
-            abs_tol=1e-6,
+            # Vivado's timing summary prints MHz to three decimal places.
+            abs_tol=5e-4,
         ):
             problems.append("routed clock period and frequency metadata are inconsistent")
 
@@ -873,12 +949,35 @@ def assemble_evidence(
                 xsim_row["core_cycles"] / effective_clock_hz
             )
             xsim_row["latency_clock_source"] = (
-                "routed sys_clk Clock Summary"
+                f"routed {timing.get('clock_name')} Clock Summary"
                 if routed_clock_hz
                 else "configured --clock-hz (not routed evidence)"
             )
             if not xsim_row.get("xsim_version"):
                 problems.append(f"{case.case_id} is missing xsim tool provenance")
+            if xsim_row.get("divider_model") != "generated_div_gen_behavioral_vhdl":
+                problems.append(
+                    f"{case.case_id} did not use the generated div_gen behavioral model"
+                )
+            binding = xsim_row.get("divider_binding") or {}
+            if (
+                binding.get("model") != "generated_vhdl"
+                or binding.get("work_library") != "qmc_work_vendor"
+                or binding.get("divider_library") != "qmc_fxdiv_vendor"
+                or not binding.get("sha256")
+            ):
+                problems.append(
+                    f"{case.case_id} is missing an isolated generated-divider library binding"
+                )
+            model_fingerprint = xsim_row.get("divider_model_fingerprint") or {}
+            if (
+                model_fingerprint.get("sha256")
+                and binding.get("sha256")
+                and model_fingerprint["sha256"].lower() != binding["sha256"].lower()
+            ):
+                problems.append(
+                    f"{case.case_id} divider binding hash does not match the selected model"
+                )
             if xsim_row["price_raw_q16_16"] != case.expected_price_raw:
                 problems.append(
                     f"{case.case_id} xsim raw price {xsim_row['price_raw_q16_16']} "
@@ -960,6 +1059,10 @@ def assemble_evidence(
             problems.append("routed implementation does not close setup timing")
         if timing["setup_failing_endpoints"] != 0:
             problems.append("routed implementation has setup failing endpoints")
+        if timing["whs_ns"] < 0 or timing["ths_ns"] != 0:
+            problems.append("routed implementation does not close hold timing")
+        if timing["hold_failing_endpoints"] != 0:
+            problems.append("routed implementation has hold failing endpoints")
         if not timing["all_constraints_met"]:
             problems.append("timing report does not state that all constraints are met")
     if utilization is None:
@@ -1037,7 +1140,7 @@ def assemble_evidence(
         "routed_clock_period_ns": timing_period,
         "latency_clock_hz": effective_clock_hz,
         "latency_clock_source": (
-            "routed sys_clk Clock Summary"
+            f"routed {timing.get('clock_name')} Clock Summary"
             if routed_clock_hz
             else "configured --clock-hz (not routed evidence)"
         ),
@@ -1088,6 +1191,21 @@ def render_markdown(evidence: Mapping[str, Any]) -> str:
     provenance = evidence["provenance"]
     timing = evidence.get("routed_timing")
     utilization = evidence.get("routed_utilization")
+    divider_models = {
+        row["rtl_xsim_four_lane"].get("divider_model")
+        for row in evidence.get("cases", [])
+        if row.get("rtl_xsim_four_lane")
+        and row["rtl_xsim_four_lane"].get("divider_model")
+    }
+    if divider_models == {"generated_div_gen_behavioral_vhdl"}:
+        divider_provenance = (
+            "generated `div_gen` behavioral VHDL "
+            "(fingerprinted in the machine-readable evidence)"
+        )
+    elif divider_models:
+        divider_provenance = ", ".join(sorted(divider_models))
+    else:
+        divider_provenance = "not collected"
     state = "CLAIM-READY" if evidence["claim_ready"] else "PARTIAL / NOT CLAIM-READY"
     lines = [
         "# Reproducible Claim Evidence",
@@ -1111,6 +1229,7 @@ def render_markdown(evidence: Mapping[str, Any]) -> str:
         f"- Core/lanes/clock: `{provenance['rtl_core_top']}` / "
         f"{provenance['lanes']} / {provenance['latency_clock_hz'] / 1e6:g} MHz "
         f"({provenance['latency_clock_source']})",
+        f"- RTL divider simulation: {divider_provenance}",
         f"- Source fingerprint: `{provenance['source_snapshot']['combined_sha256']}`",
         f"- Product/mode: {provenance['option_type'].upper()} / {provenance['exercise_mode']}",
         "",
@@ -1123,6 +1242,9 @@ def render_markdown(evidence: Mapping[str, Any]) -> str:
                 f"- WNS: {_fmt(timing['wns_ns'], 3)} ns",
                 f"- TNS: {_fmt(timing['tns_ns'], 3)} ns",
                 f"- Setup failing endpoints: {timing['setup_failing_endpoints']}",
+                f"- WHS: {_fmt(timing['whs_ns'], 3)} ns",
+                f"- THS: {_fmt(timing['ths_ns'], 3)} ns",
+                f"- Hold failing endpoints: {timing['hold_failing_endpoints']}",
             ]
         )
     else:
@@ -1160,7 +1282,7 @@ def render_markdown(evidence: Mapping[str, Any]) -> str:
         raw = cpp["price_raw_q16_16"] if cpp else (xsim or {}).get("price_raw_q16_16")
         parity_text = "bit-exact" if parity and parity["bit_exact"] else "not collected"
         lines.append(
-            f"| {workload['paths']}×{workload['steps']} multi PUT | {_fmt(raw, 0)} | "
+            f"| {workload['paths']}x{workload['steps']} multi PUT | {_fmt(raw, 0)} | "
             f"{parity_text} | {_fmt((xsim or {}).get('core_cycles'), 0)} | "
             f"{_fmt(((xsim or {}).get('core_latency_seconds') or 0) * 1e3 if xsim else None, 5)} | "
             f"{_fmt((reference or {}).get('signed_error_bps_of_spot'), 4)} |"
@@ -1184,10 +1306,10 @@ def render_markdown(evidence: Mapping[str, Any]) -> str:
             continue
         for boundary, cpu in (row.get("cpu_boundaries") or {}).items():
             lines.append(
-                f"| {row['workload']['paths']}×{row['workload']['steps']} | "
+                f"| {row['workload']['paths']}x{row['workload']['steps']} | "
                 f"{boundary.replace('_', ' ')} | {cpu['mean_real_seconds'] * 1e3:.6f} | "
                 f"{xsim['core_latency_seconds'] * 1e3:.6f} | "
-                f"{cpu['cpu_mean_real_over_fpga_core_ratio']:.3f}× | {cpu['repetitions']} |"
+                f"{cpu['cpu_mean_real_over_fpga_core_ratio']:.3f}x | {cpu['repetitions']} |"
             )
     if not any(row.get("cpu_boundaries") for row in evidence["cases"]):
         lines.append("| N/A | CPU benchmark skipped | N/A | N/A | N/A | N/A |")
@@ -1204,7 +1326,7 @@ def render_markdown(evidence: Mapping[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "The CRR comparison is a financial reference for the single canonical 1,024×4 "
+            "The CRR comparison is a financial reference for the single canonical 1,024x4 "
             "workload, not a global accuracy guarantee.",
             "",
         ]
@@ -1275,6 +1397,9 @@ def write_outputs(
         "wns_ns",
         "tns_ns",
         "setup_failing_endpoints",
+        "whs_ns",
+        "ths_ns",
+        "hold_failing_endpoints",
     ]
     with csv_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
@@ -1322,6 +1447,9 @@ def write_outputs(
                     "wns_ns": timing.get("wns_ns"),
                     "tns_ns": timing.get("tns_ns"),
                     "setup_failing_endpoints": timing.get("setup_failing_endpoints"),
+                    "whs_ns": timing.get("whs_ns"),
+                    "ths_ns": timing.get("ths_ns"),
+                    "hold_failing_endpoints": timing.get("hold_failing_endpoints"),
                 }
             )
 
@@ -1380,18 +1508,22 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timing-report",
         type=Path,
-        default=Path("vivado_build/arty_a7_100_multi_lanes4_10ns/timing_post_route.rpt"),
+        default=Path(
+            "vivado_build/arty_a7_100_multi_lanes4_9p5ns_rowopt/timing_post_route.rpt"
+        ),
     )
     parser.add_argument(
         "--utilization-report",
         type=Path,
-        default=Path("vivado_build/arty_a7_100_multi_lanes4_10ns/utilization.rpt"),
+        default=Path(
+            "vivado_build/arty_a7_100_multi_lanes4_9p5ns_rowopt/utilization.rpt"
+        ),
     )
     parser.add_argument(
         "--clock-hz",
         type=float,
         default=DEFAULT_CLOCK_HZ,
-        help="configured expectation; claim latency is derived from routed sys_clk when available",
+        help="configured expectation; claim latency is derived from the routed core clock when available",
     )
     parser.add_argument("--reference-steps", type=int, default=4096)
     parser.add_argument("--command-timeout", type=int, default=3600)
@@ -1429,6 +1561,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     vivado_run_info: dict[str, Any] | None = None
     skipped: list[str] = []
 
+    timing_path = args.timing_report if args.timing_report.is_absolute() else repo / args.timing_report
+    util_path = (
+        args.utilization_report
+        if args.utilization_report.is_absolute()
+        else repo / args.utilization_report
+    )
+    if args.vivado_mode == "run":
+        vivado_run_info = run_vivado_route(repo, args.command_timeout)
+    elif args.vivado_mode == "skip":
+        skipped.append("vivado")
+
     selected_compiler_version = _tool_version([args.cxx, "--version"], repo)
     cpp_compiler_version: str | None = None
     benchmark_compiler_version: str | None = None
@@ -1448,7 +1591,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         skipped.append("cpp")
 
     if args.xsim_mode == "run":
-        xsim = collect_xsim_runs(repo, raw_dir, args.command_timeout)
+        divider_model = (
+            timing_path.parent
+            / "generated_ip"
+            / "fxDiv_core"
+            / "fxDiv_core"
+            / "sim"
+            / "fxDiv_core.vhd"
+        )
+        if not divider_model.is_file():
+            raise EvidenceError(
+                f"generated divider model not found: {divider_model}; "
+                "run the Vivado build before XSim"
+            )
+        xsim = collect_xsim_runs(
+            repo, raw_dir, args.command_timeout, divider_model
+        )
     elif args.xsim_mode == "parse":
         xsim = collect_xsim_logs(_case_paths(args.xsim_log_4, args.xsim_log_12), repo)
     else:
@@ -1466,17 +1624,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         benchmark_compiler_version = args.compiler_provenance
     else:
         skipped.append("google_benchmark")
-
-    timing_path = args.timing_report if args.timing_report.is_absolute() else repo / args.timing_report
-    util_path = (
-        args.utilization_report
-        if args.utilization_report.is_absolute()
-        else repo / args.utilization_report
-    )
-    if args.vivado_mode == "run":
-        vivado_run_info = run_vivado_route(repo, args.command_timeout)
-    elif args.vivado_mode == "skip":
-        skipped.append("vivado")
 
     parse_vivado = args.vivado_mode in ("run", "parse")
     timing = (

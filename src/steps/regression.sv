@@ -520,6 +520,8 @@ end
     logic signed [WIDTH-1:0] bt2;
     logic signed [WIDTH-1:0] bt1;
     logic signed [WIDTH-1:0] bt0;
+    logic signed [WIDTH-1:0] bt2_latched;
+    logic signed [WIDTH-1:0] bt1_latched;
     logic                     div_b2_ready;
     logic                     mul12_ready;
     logic                     div_b1_ready;
@@ -527,6 +529,21 @@ end
     logic                     mul02_ready;
     logic                     div_b0_ready;
 
+
+    // bt2 and bt1 are AXI-stream values: they are guaranteed only while their
+    // valid signals are asserted. Preserve each accepted quotient for the
+    // later multiply and final coefficient commit.
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            bt2_latched <= '0;
+            bt1_latched <= '0;
+        end else begin
+            if (v7a && mul12_ready)
+                bt2_latched <= bt2;
+            if (v7b && mul01_ready)
+                bt1_latched <= bt1;
+        end
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -648,7 +665,7 @@ end
         .ready_in  (div_b0_ready),
         .valid_out (v7c2),
         .a         (mat7[0][2]),
-        .b         (bt2),
+        .b         (bt2_latched),
         .result    (prod02)
     );
 
@@ -706,8 +723,8 @@ end
             valid_out <= 1'b0;
             // normal path
             if (v7c && !singular_err && ready_in) begin
-                beta[2]   <= bt2;
-                beta[1]   <= bt1;
+                beta[2]   <= bt2_latched;
+                beta[1]   <= bt1_latched;
                 beta[0]   <= bt0;
                 valid_out <= 1'b1;
             end
@@ -732,6 +749,26 @@ end
                 $display("%t [REG] pivots: p0_zero=%0b p1_zero=%0b p2_zero=%0b",
                         $time, pivot0_is_zero, pivot1_is_zero, pivot2_is_zero);
             end
+            if (v6b)
+                $display("%t [REG-DATA] v6b mat7_13=%h mat7_12=%h mat7_02=%h mat7_01=%h mat7_03=%h",
+                         $time, mat7[1][3], mat7[1][2], mat7[0][2], mat7[0][1], mat7[0][3]);
+            if (v7a)
+                $display("%t [REG-DATA] v7a bt2=%h", $time, bt2);
+            if (v7b1)
+                $display("%t [REG-DATA] v7b1 prod12=%h rhs1=%h", $time, prod12, rhs1);
+            if (v7b)
+                $display("%t [REG-DATA] v7b bt1=%h", $time, bt1);
+            if (v7c1)
+                $display("%t [REG-DATA] v7c1 prod01=%h", $time, prod01);
+            if (v7c2)
+                $display("%t [REG-DATA] v7c2 prod01=%h prod02=%h rhs0=%h",
+                         $time, prod01, prod02, rhs0);
+            if (v7c)
+                $display("%t [REG-DATA] v7c bt0=%h bt1_latched=%h bt2_latched=%h singular=%0b ready=%0b",
+                         $time, bt0, bt1_latched, bt2_latched, singular_err, ready_in);
+            if (mean_valid)
+                $display("%t [REG-DATA] mean_valid payoff=%h singular=%0b ready=%0b",
+                         $time, mean_payoff, singular_err, ready_in);
             if (valid_out)
                 $display("%t [REG] valid_out=1, beta0=%h beta1=%h beta2=%h",
                         $time, beta[0], beta[1], beta[2]);

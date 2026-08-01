@@ -94,6 +94,8 @@ dfx_runtime.txt
 clockInfo.txt
 2025.1/
 tclapp/
+reportstrategies/
+strategies/
 
 # Simulation debug traces
 *_trace.txt

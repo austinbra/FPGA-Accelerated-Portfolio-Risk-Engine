@@ -86,7 +86,7 @@ def _common_row(name, target, params, exercise_mode):
 
 
 def run_workflow(base, target, baseline_dir, exercise_mode="multi", num_lanes=4,
-                 port="COM4", baud=115200, timeout_s=2.0, fclk_hz=100_000_000.0,
+                 port="COM4", baud=115200, timeout_s=2.0, fclk_hz=105_263_158.0,
                  spot_bump_relative=0.01, volatility_bump=0.01,
                  cpu_runner=run_cpu_job, fpga_session_factory=FpgaSession):
     if target not in ("cpu", "fpga", "both"):
@@ -194,7 +194,7 @@ def main():
     parser.add_argument("--port", default="COM4")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=2.0)
-    parser.add_argument("--fpga-fclk-hz", type=float, default=100_000_000.0)
+    parser.add_argument("--fpga-fclk-hz", type=float, default=105_263_158.0)
     parser.add_argument("--build-cpu", action="store_true")
     parser.add_argument("--use-boost", action="store_true")
     parser.add_argument("--boost-include", default="")

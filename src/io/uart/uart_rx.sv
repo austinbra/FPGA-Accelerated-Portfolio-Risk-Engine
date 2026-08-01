@@ -21,15 +21,22 @@ module uart_rx #(
     logic [15:0] clk_count;
     logic [2:0] bit_index;
     logic [7:0] rx_shift;
-    logic       rx_sync;
     logic       rx_valid_r;
+    (* ASYNC_REG = "TRUE" *) logic [1:0] rx_sync_ff;
 
     assign rx_valid = rx_valid_r;
 
-    // Simple synchronizer
-    always_ff @(posedge clk) begin
-        rx_sync <= rx;
+    // The FTDI RX line is asynchronous to the generated core clock. Two
+    // colocated stages prevent a metastable first sample from reaching the
+    // UART state machine.
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            rx_sync_ff <= 2'b11;
+        else
+            rx_sync_ff <= {rx_sync_ff[0], rx};
     end
+
+    wire rx_sync = rx_sync_ff[1];
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -77,7 +84,12 @@ module uart_rx #(
                 STOP: begin
                     if (clk_count == CLKS_PER_BIT - 1) begin
                         clk_count <= 0;
-                        state     <= READY;
+                        // Reject framing errors instead of accepting a byte
+                        // and treating a later data bit as the next start.
+                        if (rx_sync)
+                            state <= READY;
+                        else
+                            state <= IDLE;
                     end else
                         clk_count <= clk_count + 1;
                 end

@@ -2,13 +2,13 @@
 # Usage (from PowerShell wrapper):
 #   vivado -mode batch -source scripts/program_arty_a7.tcl -tclargs <bit_file>
 #
-# If <bit_file> is omitted, defaults to vivado_build/arty_a7_100/arty_a7_qmc.bit
+# If <bit_file> is omitted, use the validated 4-lane, 100 MHz build.
 # relative to the script's repo root.
 
 set script_dir [file normalize [file dirname [info script]]]
 set repo_root  [file normalize [file join $script_dir ..]]
 
-set default_bit [file join $repo_root "vivado_build" "arty_a7_100" "arty_a7_qmc.bit"]
+set default_bit [file join $repo_root "vivado_build" "arty_a7_100_multi_lanes4_9p5ns_rowopt" "arty_a7_qmc_multi.bit"]
 if {$argc >= 1} {
     set bit_file [lindex $argv 0]
 } else {
@@ -24,7 +24,7 @@ if {![file exists $bit_file]} {
 puts "Programming Arty A7-100T with: $bit_file"
 
 open_hw_manager
-connect_hw_server -allow_non_jtag
+connect_hw_server -url TCP:localhost:3121 -cs_url TCP:localhost:3042
 open_hw_target
 
 # Pick first Xilinx device on the scan chain.

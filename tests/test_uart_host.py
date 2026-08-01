@@ -13,7 +13,7 @@ PARAMS = {
 
 
 def response_bytes(params=PARAMS, price_word=391343, marker=uart_host.RESULT_MARKER,
-                   cycles=72394):
+                   cycles=90233):
     payload = uart_host._request_payload(params)
     return struct.pack("<8i", *payload) + struct.pack(
         "<4I", marker, price_word, cycles & 0xFFFFFFFF, cycles >> 32
@@ -26,6 +26,7 @@ class FakeSerial:
         self.max_chunk = max_chunk
         self.timeout = None
         self.writes = bytearray()
+        self.write_chunks = []
         self.closed = False
         self.reset_count = 0
 
@@ -35,6 +36,7 @@ class FakeSerial:
 
     def write(self, data):
         self.writes.extend(data)
+        self.write_chunks.append(bytes(data))
         return len(data)
 
     def flush(self):
@@ -79,9 +81,11 @@ class UartHostTests(unittest.TestCase):
             second = session.run_job(PARAMS)
         self.assertEqual(factory.calls, 1)
         self.assertEqual(first.price_raw, 391343)
-        self.assertEqual(first.core_cycles, 72394)
+        self.assertEqual(first.core_cycles, 90233)
         self.assertEqual(second.price_raw, first.price_raw)
         self.assertEqual(len(fake.writes), 64)
+        self.assertEqual(len(fake.write_chunks), 16)
+        self.assertTrue(all(len(chunk) == 4 for chunk in fake.write_chunks))
         self.assertTrue(fake.closed)
 
     def test_documented_fpga_errors_are_decoded(self):

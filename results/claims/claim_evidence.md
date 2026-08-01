@@ -6,24 +6,28 @@ FPGA core latency is measured from acceptance of a complete RTL job through `res
 
 ## Provenance
 
-- Commit: `c031f4b24fc783fc0dc30e0185cfc2e6ae3850e6` (dirty worktree: `True`)
+- Commit: `5a4e661547d494f83ea9ee519d54f797e735fa7e` (dirty worktree: `True`)
 - Benchmark CPU: Intel64 Family 6 Model 186 Stepping 2, GenuineIntel
 - Current host CPU: Intel64 Family 6 Model 186 Stepping 2, GenuineIntel
 - C++ compiler: g++ (MinGW-W64 x86_64-msvcrt-posix-seh, built by Brecht Sanders, r3) 14.2.0
 - Benchmark compiler: g++ (MinGW-W64 x86_64-msvcrt-posix-seh, built by Brecht Sanders, r3) 14.2.0
 - Vivado: Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025
 - Device/top: 7a100t-csg324 / arty_a7_option_pricer_top
-- Core/lanes/clock: `top_mc_option_pricer_multi_stored` / 4 / 100 MHz (routed sys_clk Clock Summary)
-- Source fingerprint: `8f577a64e569a4296cb2c375e4a0fe1da4cb59d3801b2ed0c45be42fc62b6802`
+- Core/lanes/clock: `top_mc_option_pricer_multi_stored` / 4 / 105.263 MHz (routed core_clk_unbuffered Clock Summary)
+- RTL divider simulation: generated `div_gen` behavioral VHDL (fingerprinted in the machine-readable evidence)
+- Source fingerprint: `7d050a1c4471743fb8091f2778203d3d13b216d5d2666a8fd089bf985b1465c2`
 - Product/mode: PUT / multi
 
 ## Routed implementation
 
-- WNS: 0.139 ns
+- WNS: 0.121 ns
 - TNS: 0.000 ns
 - Setup failing endpoints: 0
-- Slice LUTs: 45955 (72.48%)
-- Slice registers: 46905 (36.99%)
+- WHS: 0.008 ns
+- THS: 0.000 ns
+- Hold failing endpoints: 0
+- Slice LUTs: 44768 (70.61%)
+- Slice registers: 49241 (38.83%)
 - DSPs: 180 (75.00%)
 - Block RAM tiles: 66 (48.89%)
 
@@ -31,8 +35,8 @@ FPGA core latency is measured from acceptance of a complete RTL job through `res
 
 | Workload | Raw Q16.16 | C++/RTL | Core cycles | Core latency (ms) | CRR error (bp spot) |
 |---|---:|---|---:|---:|---:|
-| 1024×4 multi PUT | 391343 | bit-exact | 72394 | 0.72394 | -11.8765 |
-| 1024×12 multi PUT | 428757 | bit-exact | 236362 | 2.36362 | N/A |
+| 1024x4 multi PUT | 391343 | bit-exact | 91302 | 0.86737 | -11.8765 |
+| 1024x12 multi PUT | 428757 | bit-exact | 293790 | 2.79101 | N/A |
 
 ## Explicit CPU/FPGA timing-boundary ratios
 
@@ -40,15 +44,15 @@ Each ratio below is `CPU mean real time / FPGA core time`. It applies only to th
 
 | Workload | CPU boundary | CPU mean (ms) | FPGA core (ms) | Boundary-specific ratio | Repetitions |
 |---|---|---:|---:|---:|---:|
-| 1024×4 | end to end | 0.967301 | 0.723940 | 1.336× | 15 |
-| 1024×4 | pricing core | 0.844558 | 0.723940 | 1.167× | 15 |
-| 1024×4 | hot kernel | 0.725242 | 0.723940 | 1.002× | 15 |
-| 1024×12 | end to end | 2.076906 | 2.363620 | 0.879× | 15 |
-| 1024×12 | pricing core | 1.841793 | 2.363620 | 0.779× | 15 |
-| 1024×12 | hot kernel | 1.870528 | 2.363620 | 0.791× | 15 |
+| 1024x4 | end to end | 0.889880 | 0.867369 | 1.026x | 15 |
+| 1024x4 | pricing core | 0.551170 | 0.867369 | 0.635x | 15 |
+| 1024x4 | hot kernel | 0.485392 | 0.867369 | 0.560x | 15 |
+| 1024x12 | end to end | 1.611681 | 2.791005 | 0.577x | 15 |
+| 1024x12 | pricing core | 1.208134 | 2.791005 | 0.433x | 15 |
+| 1024x12 | hot kernel | 1.187450 | 2.791005 | 0.425x | 15 |
 
 ## Validation
 
 All required parity, cycle, benchmark, and routed-report checks passed.
 
-The CRR comparison is a financial reference for the single canonical 1,024×4 workload, not a global accuracy guarantee.
+The CRR comparison is a financial reference for the single canonical 1,024x4 workload, not a global accuracy guarantee.

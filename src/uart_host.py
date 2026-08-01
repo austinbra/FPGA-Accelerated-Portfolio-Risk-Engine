@@ -189,12 +189,16 @@ class FpgaSession:
     """A lazy persistent serial connection for one or more pricing jobs."""
 
     def __init__(self, port, baud=115200, timeout_s=2.0, num_lanes=4,
-                 serial_factory=None, clock=time.monotonic):
+                 serial_factory=None, clock=time.monotonic,
+                 request_word_gap_s=0.002, sleeper=time.sleep):
         if timeout_s <= 0:
             raise ValueError("timeout_s must be positive")
+        if request_word_gap_s < 0:
+            raise ValueError("request_word_gap_s cannot be negative")
         self.port, self.baud = port, int(baud)
         self.timeout_s, self.num_lanes = float(timeout_s), int(num_lanes)
         self._serial_factory, self._clock = serial_factory, clock
+        self.request_word_gap_s, self._sleeper = float(request_word_gap_s), sleeper
         self._serial = None
 
     def __enter__(self):
@@ -231,9 +235,12 @@ class FpgaSession:
         stream = self._open()
         started = self._clock()
         deadline = started + self.timeout_s
-        stream.write(struct.pack("<8i", *payload))
-        if hasattr(stream, "flush"):
-            stream.flush()
+        for word in payload:
+            stream.write(struct.pack("<i", word))
+            if hasattr(stream, "flush"):
+                stream.flush()
+            if self.request_word_gap_s:
+                self._sleeper(self.request_word_gap_s)
         echoes = struct.unpack("<8i", _read_exact(stream, 32, deadline, self._clock))
         if echoes != payload:
             raise UartProtocolError(
@@ -431,7 +438,7 @@ def main():
     parser.add_argument("--port", default="COM4")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--timeout", type=float, default=2.0)
-    parser.add_argument("--fpga-fclk-hz", type=float, default=100_000_000.0)
+    parser.add_argument("--fpga-fclk-hz", type=float, default=105_263_158.0)
     parser.add_argument("--num-lanes", type=int, default=4,
                         help="lane count compiled into the physical/virtual bitstream")
     parser.add_argument("--exercise-mode", choices=("single", "multi"), default=None,

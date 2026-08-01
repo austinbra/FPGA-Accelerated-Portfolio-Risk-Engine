@@ -22,8 +22,10 @@ Elapsed Time: 0.001134 seconds
 """
 
 XSIM_TEXT = """\
+Divider model: generated div_gen behavioral VHDL (fxDiv_core.vhd)
+DIVIDER_BINDING model=generated_vhdl work_library=qmc_work_vendor divider_library=qmc_fxdiv_vendor sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ****** xsim v2025.1 (64-bit)
-[VIRTUAL_A7] paths=1024 steps=4 core_cycles=72394 price_raw=0x0005f8af marker=0xabcd0001
+[VIRTUAL_A7] paths=1024 steps=4 core_cycles=91302 price_raw=0x0005f8af marker=0xabcd0001
 PASS: top UART echo/result packet check (1 batch(es))
 """
 
@@ -36,9 +38,9 @@ TIMING_TEXT = """\
 Clock    Waveform(ns)       Period(ns)      Frequency(MHz)
 -----    ------------       ----------      --------------
 sys_clk  {0.000 5.000}      10.000          100.000
-    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints
-    -------      -------  ---------------------  -------------------
-      0.144        0.000                      0               126691
+    WNS(ns)      TNS(ns)  TNS Failing Endpoints  TNS Total Endpoints      WHS(ns)      THS(ns)  THS Failing Endpoints  THS Total Endpoints
+    -------      -------  ---------------------  -------------------      -------      -------  ---------------------  -------------------
+      0.172        0.000                      0               126691        0.013        0.000                      0               126691
 All user specified timing constraints are met.
   Requirement:            10.000ns  (sys_clk rise@10.000ns - sys_clk rise@0.000ns)
 """
@@ -49,8 +51,8 @@ UTIL_TEXT = """\
 | Design       : arty_a7_option_pricer_top
 | Device       : xc7a100tcsg324-1
 | Design State : Routed
-| Slice LUTs                 | 45875 | 0 | 0 | 63400 | 72.36 |
-| Slice Registers            | 46911 | 0 | 0 | 126800 | 37.00 |
+| Slice LUTs                 | 44868 | 0 | 0 | 63400 | 72.36 |
+| Slice Registers            | 48624 | 0 | 0 | 126800 | 37.00 |
 | Block RAM Tile             | 66 | 0 | 0 | 135 | 48.89 |
 | DSPs                       | 180 | 0 | 0 | 240 | 75.00 |
 """
@@ -63,6 +65,12 @@ SOURCE_SNAPSHOT = {
 REPORT_FINGERPRINTS = {
     "timing_report": {"sha256": "timing", "mtime_ns": 200},
     "utilization_report": {"sha256": "util", "mtime_ns": 200},
+}
+DIVIDER_BINDING = {
+    "model": "generated_vhdl",
+    "work_library": "qmc_work_vendor",
+    "divider_library": "qmc_fxdiv_vendor",
+    "sha256": "a" * 64,
 }
 
 
@@ -131,6 +139,8 @@ def assembled_fixture(
             "price": case.price,
             "result_marker": claims.SUCCESS_MARKER,
             "xsim_version": "2025.1",
+            "divider_model": "generated_div_gen_behavioral_vhdl",
+            "divider_binding": DIVIDER_BINDING.copy(),
         }
     return claims.assemble_evidence(
         repo=REPO,
@@ -169,9 +179,13 @@ class ParserTests(unittest.TestCase):
     def test_xsim_output_and_signed_raw(self) -> None:
         parsed = claims.parse_xsim_output(XSIM_TEXT, claims.CANONICAL_CASES[0])
         self.assertEqual(parsed["result_marker"], claims.SUCCESS_MARKER)
-        self.assertEqual(parsed["core_cycles"], 72394)
+        self.assertEqual(parsed["core_cycles"], 91302)
         self.assertEqual(parsed["price_raw_q16_16"], 391343)
         self.assertEqual(parsed["xsim_version"], "2025.1")
+        self.assertEqual(
+            parsed["divider_model"], "generated_div_gen_behavioral_vhdl"
+        )
+        self.assertEqual(parsed["divider_binding"], DIVIDER_BINDING)
 
     def test_xsim_rejects_wrong_marker(self) -> None:
         bad = XSIM_TEXT.replace("0xabcd0001", "0xdead0001")
@@ -181,12 +195,15 @@ class ParserTests(unittest.TestCase):
     def test_timing_and_utilization_reports(self) -> None:
         timing = claims.parse_timing_report(TIMING_TEXT)
         utilization = claims.parse_utilization_report(UTIL_TEXT)
-        self.assertEqual(timing["wns_ns"], 0.144)
+        self.assertEqual(timing["wns_ns"], 0.172)
         self.assertEqual(timing["tns_ns"], 0.0)
         self.assertEqual(timing["setup_failing_endpoints"], 0)
+        self.assertEqual(timing["whs_ns"], 0.013)
+        self.assertEqual(timing["ths_ns"], 0.0)
+        self.assertEqual(timing["hold_failing_endpoints"], 0)
         self.assertEqual(timing["clock_period_ns"], 10.0)
         self.assertEqual(timing["clock_frequency_mhz"], 100.0)
-        self.assertEqual(utilization["slice_luts"]["used"], 45875)
+        self.assertEqual(utilization["slice_luts"]["used"], 44868)
         self.assertEqual(utilization["dsps"]["percent"], 75.0)
 
     def test_benchmark_boundaries_are_explicit(self) -> None:
@@ -204,8 +221,14 @@ class ParserTests(unittest.TestCase):
         vivado = claims.vivado_route_command(REPO, 1234, "powershell.exe")
         self.assertIn("-MultiExercise", vivado)
         self.assertEqual(vivado[vivado.index("-NumLanes") + 1], "4")
-        self.assertEqual(vivado[vivado.index("-ClockPeriodNs") + 1], "10.0")
+        self.assertEqual(vivado[vivado.index("-ClockPeriodNs") + 1], "9.5")
         self.assertEqual(vivado[vivado.index("-TimeoutSeconds") + 1], "1234")
+
+    def test_default_evidence_route_is_canonical_a7(self) -> None:
+        args = claims.create_parser().parse_args([])
+        self.assertEqual(args.clock_hz, 105_263_158.0)
+        self.assertIn("arty_a7_100_multi_lanes4_9p5ns_rowopt", str(args.timing_report))
+        self.assertIn("arty_a7_100_multi_lanes4_9p5ns_rowopt", str(args.utilization_report))
 
 
 class OutputTests(unittest.TestCase):
@@ -228,6 +251,8 @@ class OutputTests(unittest.TestCase):
                 "price": case.price,
                 "result_marker": claims.SUCCESS_MARKER,
                 "xsim_version": "2025.1",
+                "divider_model": "generated_div_gen_behavioral_vhdl",
+                "divider_binding": DIVIDER_BINDING.copy(),
             }
         evidence = claims.assemble_evidence(
             repo=REPO,
@@ -248,13 +273,13 @@ class OutputTests(unittest.TestCase):
         self.assertTrue(evidence["claim_ready"])
         case4 = evidence["cases"][0]
         self.assertAlmostEqual(
-            case4["rtl_xsim_four_lane"]["core_latency_seconds"], 0.00072394
+            case4["rtl_xsim_four_lane"]["core_latency_seconds"], 0.00091302
         )
         self.assertAlmostEqual(
             case4["cpu_boundaries"]["end_to_end"][
                 "cpu_mean_real_over_fpga_core_ratio"
             ],
-            0.00113 / 0.00072394,
+            0.00113 / 0.00091302,
         )
         self.assertLess(
             case4["financial_reference"]["signed_error_bps_of_spot"], 0.0
@@ -309,6 +334,8 @@ class OutputTests(unittest.TestCase):
                 "price": case.price,
                 "result_marker": claims.SUCCESS_MARKER,
                 "xsim_version": "2025.1",
+                "divider_model": "generated_div_gen_behavioral_vhdl",
+                "divider_binding": DIVIDER_BINDING.copy(),
             }
         evidence = claims.assemble_evidence(
             repo=REPO,

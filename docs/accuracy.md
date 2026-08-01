@@ -1,63 +1,128 @@
-# Financial Accuracy
+# Financial Accuracy and Numerical Validation
 
-Hardware parity is not the same as financial accuracy, and product usefulness is a third question.
+Hardware parity, financial accuracy, and product usefulness are different
+questions. This project keeps them separate:
 
-This continued project uses three separate gates:
+1. **Arithmetic parity:** does RTL produce the same raw Q16.16 value as the C++
+   FPGA-style mirror?
+2. **Model accuracy:** how far is that shared method from an independent
+   high-precision financial reference?
+3. **Risk-product accuracy:** do scenarios, finite-difference Greeks, and future
+   portfolio aggregates preserve assumptions and control estimator noise?
 
-1. **Parity:** does RTL equal the C++ FPGA-style mirror?
-2. **Kernel accuracy:** how far is the FPGA method from a high-precision financial reference?
-3. **Product accuracy:** do portfolio scenarios, Greeks, and future payoff extensions preserve traceable assumptions and acceptable error?
+A bit-exact wrong model is still wrong. A financially reasonable model can also
+be implemented incorrectly in hardware. Both gates are required.
 
-Parity is measured in Q16.16 LSBs. Accuracy is measured in basis points.
+## Relationship to the Divider Correction
+
+The July 2026 RTL divider defect invalidated hardware results that depended on
+the wrong vendor output slice and one-cycle stub. It did not alter the C++
+financial model or the independent CRR/Black-Scholes references.
+
+After the fix, the generated-divider RTL again matches the C++ mirror exactly:
+
+| Workload | C++ raw | RTL raw | Delta |
+|---|---:|---:|---:|
+| 1,024 paths x 4 steps, multi PUT | 391,343 | 391,343 | 0 LSB |
+| 1,024 paths x 12 steps, multi PUT | 428,757 | 428,757 | 0 LSB |
+
+That restores arithmetic parity. The accuracy study below remains the separate
+financial gate.
 
 ## Reference Models
 
 `scripts/financial_reference.py` provides:
 
-- `american_binomial_crr(...)`: dependency-free Cox-Ross-Rubinstein American reference, `q=0`.
-- `european_black_scholes(...)`: sanity check, especially for no-dividend CALLs.
-- `single_exercise_tree(...)`: isolates the old single-date modeling gap.
+- `american_binomial_crr(...)`: dependency-free Cox-Ross-Rubinstein American
+  reference with `q=0`;
+- `european_black_scholes(...)`: European sanity check, especially for
+  no-dividend CALLs;
+- `single_exercise_tree(...)`: isolates the modeling gap from permitting only
+  one early-exercise date.
 
-The default study compares reference convergence at `ref_steps/2` and `ref_steps` and warns when the reference itself is unstable.
+The study evaluates the reference with `ref_steps/2` and `ref_steps`. A warning
+is raised when the reference itself has not converged enough for the requested
+tolerance.
 
-## Error Columns
+## Shared C++/RTL Contract
 
-Important columns from `scripts/accuracy_study.py`:
+The active multi-date contract is:
 
-- `american_tree`: American CRR reference price.
-- `single_fpga_style`: C++ mirror of the single-date RTL path.
-- `multi_fpga_style`: C++ mirror of the multi-date RTL path.
-- `abs_bps_spot`: `abs(fpga_style - american_tree) / S0 * 10000`.
-- `abs_bps_reference`: `abs(fpga_style - american_tree) / american_tree * 10000`.
-- `single_total_bps_spot`: single-date error versus American tree.
-- `multi_total_bps_spot`: multi-date error versus American tree.
-- `multi_vs_single_improvement_bps_spot`: positive means multi-date improved.
-- `multi_fixed_point_bps_spot`: multi-date fixed-point mirror minus double Sobol LSM, in bps of spot.
+- PUT exercise dates: simulated steps `1..M-1`;
+- CALL exercise: terminal-only while dividend yield is fixed at zero;
+- Sobol sequence begins at index 1;
+- path values and cashflows: signed Q16.16;
+- basis: `[1, x, x^2]`, where `x = S/K - 1`;
+- regression samples: in-the-money PUT paths;
+- continuation target: one-step discounted current cashflow;
+- wide sums: 64-bit where specified by the RTL contract;
+- singular fallback: mean continuation (`beta1 = beta2 = 0`);
+- beta-cap fallback: mean continuation if any absolute beta exceeds 4096.0;
+- exercise rule: exercise when immediate payoff is at least continuation;
+- final boundary: maximum of discounted estimate and intrinsic value at `S0`.
 
-When `--attribution` is enabled:
+Because exercise exists on a finite grid, the precise description is a
+discrete-date QMC-LSM approximation to American exercise, not continuous-time
+American exercise.
 
-- `single_exercise_model_error`: error from exercising only at `M-1`.
-- `qmc_regression_error`: Sobol path estimator and regression error.
-- `fixed_point_error`: fixed-point hardware-style error.
-- `total_error`: final FPGA-style price minus American reference.
+## Error Units
 
-## Health Metrics
+Parity is measured in Q16.16 least-significant bits.
 
-Enable with `--health-metrics`.
+Financial error is commonly reported as basis points of spot:
 
-Case-level metrics:
+```text
+error_bp_spot = (fpga_style_price - reference_price) / S0 * 10,000
+```
 
-- `min_itm_count`, `avg_itm_count`, `max_itm_count`
-- `fallback_step_count`, `fallback_step_ratio`
-- `worst_exercise_step`
-- `max_abs_beta0`, `max_abs_beta1`, `max_abs_beta2`
-- `min_cont_est`, `max_cont_est`
-- `negative_cont_est_count`
-- `early_exercise_count`, `early_exercise_rate`
-- `avg_exercise_step`, `min_exercise_step`, `max_exercise_step`
-- `early_exercise_policy`
-- `regression_basis`
-- `beta_abs_cap`
+Absolute basis points of reference are also useful when comparing across very
+different option prices:
+
+```text
+abs_error_bp_reference = abs(error) / reference_price * 10,000
+```
+
+The generated claim evidence records `-11.8765` bp of spot for the single
+canonical 1,024 x 4 multi-date PUT comparison. That is one data point, not an
+accuracy guarantee over a product surface.
+
+## Attribution Columns
+
+With `--attribution`, `scripts/accuracy_study.py` separates:
+
+- `single_exercise_model_error`: loss from the historical one-exercise-date
+  approximation;
+- `qmc_regression_error`: Sobol sampling and LSM regression error;
+- `fixed_point_error`: fixed-point mirror minus double-precision Sobol LSM;
+- `total_error`: final FPGA-style price minus the independent reference.
+
+Useful table columns include:
+
+- `american_tree`;
+- `single_fpga_style`;
+- `multi_fpga_style`;
+- `single_total_bps_spot`;
+- `multi_total_bps_spot`;
+- `multi_vs_single_improvement_bps_spot`;
+- `multi_fixed_point_bps_spot`.
+
+This decomposition prevents fixed-point RTL from being blamed for an error
+that is actually caused by too few paths, a coarse exercise grid, or unstable
+regression.
+
+## Regression Health Metrics
+
+Enable `--health-metrics` to capture:
+
+- minimum, average, and maximum in-the-money path count;
+- fallback count and fallback ratio;
+- worst exercise step;
+- maximum absolute beta coefficients;
+- minimum and maximum continuation estimate;
+- negative continuation-estimate count;
+- early-exercise count and rate;
+- average/minimum/maximum exercise step;
+- active early-exercise policy, basis, and beta cap.
 
 Per-step rows are written to:
 
@@ -65,87 +130,96 @@ Per-step rows are written to:
 .tmp/accuracy_*/health/health_rows.csv
 ```
 
-These metrics matter because LSM can fail silently: a final price can look plausible while beta coefficients or continuation estimates are nonsense.
+These diagnostics matter because LSM can produce a plausible final price while
+individual regressions are underdetermined or unstable.
 
-## Final Kernel Contract
+## Standard Studies
 
-This is the shared C++/RTL financial contract:
-
-- PUT exercise dates: every simulated step `1..M-1`.
-- CALL exercise dates: suppressed while `q=0`.
-- Basis: centered normalized moneyness `[1, x, x^2]`, where `x = S/K - 1`.
-- Path values: Q16.16.
-- Cashflows: Q16.16.
-- Discounting: one-step `disc = exp(-r*dt)` using RTL-style fixed-point math.
-- Regression samples: in-the-money PUT paths only.
-- Continuation target: `disc * current_cashflow[path]`.
-- Accumulation: wide 64-bit sums where the RTL contract requires it.
-- Singular fallback: `beta0 = mean(Y)`, `beta1 = 0`, `beta2 = 0`.
-- Beta cap fallback: if `max(abs(beta)) > 4096.0`, use mean continuation.
-- Cashflow update: exercise if `immediate >= continuation_estimate`.
-- Final price: average of one-step discounted cashflows.
-
-## Product Accuracy Policy
-
-Portfolio and scenario tooling must make assumptions visible.
-
-For each product report, include when applicable:
-
-- pricing target: `cpu`, `fpga`, or `both`,
-- path count and step count,
-- option type and exercise mode,
-- scenario name and shock values,
-- Greek bump sizes,
-- base and bumped prices,
-- CPU/FPGA Q16.16 delta when `--target both` is used,
-- any unsupported feature fallback.
-
-Do not hide estimator noise behind polished reports. Scenario and Greek outputs should be auditable back to individual pricing jobs.
-
-## Standard Accuracy Runs
-
-Smoke:
+### Smoke
 
 ```powershell
 python scripts\accuracy_study.py --preset smoke --build-cpu --attribution
 ```
 
-Default:
+### Default with health metrics
 
 ```powershell
-python scripts\accuracy_study.py --preset default --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_default_health
+python scripts\accuracy_study.py `
+  --preset default `
+  --exercise-mode both `
+  --build-cpu `
+  --attribution `
+  --health-metrics `
+  --output-dir .tmp\accuracy_default_health
 ```
 
-Stress:
+### Stress grid
 
 ```powershell
-python scripts\accuracy_study.py --preset smoke --paths-list 1024,4096,8192 --steps-list 12,20 --moneyness-list 0.6,0.8,1.0,1.2,1.4 --sigma-list 0.05,0.2,0.4,0.6 --option-types put,call --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_stress_health
+python scripts\accuracy_study.py `
+  --preset smoke `
+  --paths-list 1024,4096,8192 `
+  --steps-list 12,20 `
+  --moneyness-list 0.6,0.8,1.0,1.2,1.4 `
+  --sigma-list 0.05,0.2,0.4,0.6 `
+  --option-types put,call `
+  --exercise-mode both `
+  --build-cpu `
+  --attribution `
+  --health-metrics `
+  --output-dir .tmp\accuracy_stress_health
 ```
 
-Large-N focused:
+The board core supports at most 1,024 paths and 50 steps. Larger-path C++
+studies are still valuable for understanding convergence, but they are not
+current FPGA requests.
 
-```powershell
-python scripts\accuracy_study.py --preset smoke --paths-list 4096,8192,16384 --steps-list 12,20 --moneyness-list 0.8,1.0,1.2 --sigma-list 0.1,0.2,0.4 --T-list 1.0 --option-types put,call --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_largeN_health
-```
+## Scenario and Greek Accuracy Policy
 
-## What We Learned
+A future risk report should retain enough information to reproduce every
+number:
 
-- The original single-date engine could be bit-exact and still financially weak.
-- Multi-date LSM is the correct American-option improvement path for PUTs.
-- Fixed-point error is controlled relative to the dominant Sobol/LSM estimator error at useful path counts.
-- Low-path outliers are expected. They do not invalidate the hardware kernel; they are estimator/regression behavior.
-- Non-dividend CALLs should not use noisy early-exercise regression while `q=0`.
-- Regression health metrics are required before translating new financial behavior into RTL.
+- contract and scenario IDs;
+- original parameters and exact shock definition;
+- base and bumped raw prices;
+- bump sizes and finite-difference formula;
+- path count, date count, option type, and exercise mode;
+- common-random-number seed/index policy;
+- target (`cpu`, `fpga`, or `both`);
+- CPU/FPGA raw delta for every `both` job;
+- regression health and fallback status;
+- unsupported-feature or fallback markers.
 
-## What Accuracy Does Not Claim Yet
+Common random numbers reduce variance in a price difference, but they do not
+eliminate bias or make a poor bump size correct. Greeks should be checked over
+multiple bump sizes and, for European cases, against analytic derivatives.
 
-This project does not claim:
+Portfolio totals can hide individual failures. Aggregate only after every job
+has a success status and traceable diagnostics.
 
-- production market-maker bps across all options,
-- dividend yield support,
-- path-dependent payoff accuracy,
-- multi-asset correlation support,
-- portfolio-level risk accuracy,
-- variance reduction beyond the existing QMC/Sobol setup.
+## Lessons
 
-Those belong to the next product phases and need their own references.
+- Single-date and multi-date models can be bit-exact yet have very different
+  American-option accuracy.
+- No-dividend CALLs should avoid noisy early-exercise regression.
+- Fixed-point error is often smaller than QMC/regression error, but this must be
+  measured over the intended surface.
+- Low-path outliers are estimator behavior, not automatically an RTL defect.
+- Vendor-IP arithmetic contracts need focused tests before full-model claims.
+- Scenario and Greek outputs need job-level audit trails, not only polished
+  aggregate tables.
+
+## Current Non-Claims
+
+This project does not yet claim:
+
+- production-wide basis-point accuracy;
+- dividend-yield support;
+- path-dependent or multi-asset accuracy;
+- calibrated volatility surfaces;
+- portfolio-level risk accuracy;
+- variance reduction beyond the current deterministic Sobol/common-random-
+  number setup;
+
+Each new payoff or risk feature needs an independent reference and a clearly
+stated supported domain before it belongs in the hardware kernel.

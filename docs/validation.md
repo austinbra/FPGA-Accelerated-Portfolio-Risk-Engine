@@ -1,291 +1,316 @@
-# Validation
+# Validation and Evidence Guide
 
-This file is the internal verification playbook for the continued project. The
-public summary lives in root `README.md` and `PROJECT_REPORT.md`.
+This project treats validation as a stack. A passing simulation is necessary,
+but it does not prove arithmetic parity, routed timing, physical-board function,
+or a fair CPU comparison.
 
-The application layer can change, but the FPGA pricing kernel must remain
-trustworthy.
+## Evidence Levels
 
-## Kernel Gates
+| Level | Question answered | Current corrected status |
+|---:|---|---|
+| 1 | Does the C++ model satisfy focused numerical tests? | complete |
+| 2 | Does divider and arithmetic RTL obey the vendor contract? | complete |
+| 3 | Does the full RTL match C++ with a calibrated fast model? | complete |
+| 4 | Does the full RTL match C++ with generated Vivado IP? | complete |
+| 5 | Does each board configuration fit, route, and meet timing? | complete for two canonical projects |
+| 6 | Does the corrected bitstream match C++ on a physical board? | complete for S7 |
+| 7 | Are repeated physical transport statistics stable? | complete for S7, 30 repetitions |
 
-Run from the repository root.
+Do not promote a Level 4 or 5 result to "measured on physical FPGA" without
+Level 6.
 
-```powershell
-python -m py_compile scripts\validate_numerical.py scripts\diagnose_numerical.py scripts\accuracy_study.py scripts\financial_reference.py scripts\vivado_build_runner.py
-.\scripts\run_xelab_smoke.ps1 -XvlogTimeoutSeconds 600 -XelabTimeoutSeconds 600 -NoCleanup
-python scripts\validate_numerical.py --exercise-mode single --paths 64 --steps 12 --option-type 1 --build-cpu
-python scripts\validate_numerical.py --exercise-mode multi --paths 64 --steps 12 --option-type 1 --build-cpu
-python scripts\validate_numerical.py --exercise-mode multi --paths 256 --steps 12 --option-type 1
-python scripts\validate_numerical.py --exercise-mode multi --paths 1024 --steps 12 --option-type 1 --xsim-timeout-seconds 2400
-python scripts\validate_numerical.py --exercise-mode multi --paths 64 --steps 12 --option-type 0 --xsim-timeout-seconds 1200
-python scripts\diagnose_numerical.py --paths 64 --steps 12 --option-type 1 --exercise-mode multi
-git diff --check
+## Correction Under Test
+
+The generated signed 48/32 Xilinx divider output is:
+
+```text
+bits 79:32  quotient
+bits 31:0   remainder
 ```
 
-Expected parity:
+The wrapper must select quotient bits `[63:32]` for a 32-bit Q16.16 result. The
+vendor core also imposes a 32-cycle response contract. The validation flow now
+checks both content and latency.
 
-| Case | Expected result |
-|------|-----------------|
-| Single-date PUT N=64/M=12 | C++ and RTL match exactly, 0 Q16.16 LSB delta |
-| Multi-date PUT N=64/M=12 | C++ and RTL match exactly, 0 Q16.16 LSB delta |
-| Multi-date PUT N=256/M=12 | C++ and RTL match exactly, 0 Q16.16 LSB delta |
-| Multi-date PUT N=1024/M=12 | C++ and RTL match exactly, 0 Q16.16 LSB delta |
-| Multi-date CALL N=64/M=12 | C++ and RTL match exactly, 0 Q16.16 LSB delta |
+## Divider Unit Gate
 
-Known measured values:
+`tb/tb_fxDiv.sv` covers:
 
-| Case | Price Q16.16 | Hex | Core cycles |
-|------|--------------|-----|-------------|
-| Single-date PUT N=64/M=12 | 263,688 | `0x00040608` | 75,603 |
-| Multi-date PUT N=64/M=12 | 373,676 | `0x0005B3AC` | 461,245 |
-| Multi-date PUT N=256/M=12 | 426,642 | `0x00068292` | 1,843,158 |
-| Multi-date PUT N=1024/M=12 | 428,757 | `0x00068AD5` | 7,370,906 |
-| Multi-date CALL N=64/M=12 | 482,546 | `0x00075CF2` | 37,726 |
+- `6.0 / 2.0 = 3.0`;
+- `-7.5 / 2.5 = -3.0`;
+- Q16.16 truncation for `1.0 / 3.0`;
+- `5.5 / -2.0 = -2.75`;
+- divide-by-zero bypass;
+- ready/valid request and response behavior;
+- exact wait-cycle reporting.
 
-## Stored-Path Multi-Lane Multi-Date Engine
+The test has been run against both:
 
-The stored-path engine in `src/top/top_option_pricer_multi_stored.sv` replaces
-the original regeneration-based multi-date controller. It generates every spot
-once, stores paths in lane-banked BRAM, stores cashflows in lane-local banks,
-replicates the path and feature pipelines, and schedules independent paths
-step-major so inverse-CDF/GBM work can overlap safely.
+- `src/sim/fxDiv_core_stub.sv`;
+- generated `generated_ip/fxDiv_core/fxDiv_core/sim/fxDiv_core.vhd`.
 
-Validated on the same 1,024-path, 12-step American PUT case. All lane counts
-return the C++/legacy RTL oracle `428,757` (`0x00068AD5`) exactly:
+Both models return the same five values. Accepted nonzero requests report 32
+wait cycles. This focused gate would have caught both historical defects before
+a full pricing run.
 
-| Lanes | Core cycles | Core time at 100 MHz | Speedup vs 7,370,906-cycle v1 |
-|-------|------------:|----------------------:|---------------------------------:|
-| 1 | 720,474 | 7.205 ms | 10.23x |
-| 2 | 411,626 | 4.116 ms | 17.91x |
-| 4 | 236,362 | 2.364 ms | 31.18x |
-| 8 | 121,290 | 1.213 ms | 60.77x |
+## Full-Core Vendor-Model Gate
 
-The historical 30-repetition i9-13905H C++ run for the same 1,024x12 raw-price
-workload measured 1.285 ms hot-kernel, 1.336 ms with path allocation, and
-1.860 ms with direction-file loading. The current tracked 15-repetition claim
-run measures 1.870528 ms, 1.841793 ms, and 2.076906 ms at those respective
-boundaries. Both show the physical four-lane A7 losing to the CPU: by 1.27x to
-1.84x historically and 1.14x to 1.28x in the current report. Full methodology
-is in [`performance.md`](performance.md).
+Claim-grade RTL uses the generated VHDL model from the retained A7 build:
 
-The eight-lane row is a cycle-accurate scaling result, not a board-fit claim.
-A7-100T synthesis used 91,092 LUTs (143.68%), so it cannot be placed on that
-device. Four lanes is the maximum synthesized configuration that fits:
-
-| Target/config | LUTs | Registers | DSP48E1 | RAMB36 | Status |
-|---------------|-----:|----------:|--------:|-------:|--------|
-| A7-100T, 4 lanes | 45,955 (72.48%) | 46,905 (36.99%) | 180 (75.00%) | 66 (48.89%) | Routed at 100 MHz, WNS +0.139 ns |
-| A7-100T, 8 lanes | 91,092 (143.68%) | 89,440 (70.54%) | 240 (100%) | 64 (47.41%) | Does not fit LUT capacity |
-| S7-50, 1 lane | 23,399 (71.78%) | 28,967 (44.43%) | 84 (70.00%) | 65 (86.67%) | June 24 pre-hardening route at 100 MHz, WNS +0.310 ns |
-| S7-50, 2 lanes | 30,606 (93.88%) | 34,855 (53.46%) | 116 (96.67%) | 65 (86.67%) | June 24 pre-hardening route at 95.24 MHz (10.5 ns), WNS +0.083 ns; fails 100 MHz by -0.180 ns |
-
-The June 24 pre-hardening S7-50 two-lane configuration is the densest fit
-evaluated (93.88% LUT, 96.67% DSP). It did not close at 100 MHz, so it is
-reported at its honest closing clock of 95.24 MHz (10.5 ns, WNS +0.083 ns),
-where the 1,024x12 compute window is 4.322 ms. The one-lane build met 100 MHz
-with margin. Both S7 bitstreams predate the valuation-time intrinsic floor and
-must be regenerated before serving as current parity artifacts.
-
-At four lanes, the 2.364 ms compute window corresponds to about 433,231
-complete 12-step paths/s, or 5.199 million simulated path-steps/s. UART transfer
-is excluded; timing is the RTL `core_cycles` interval.
-
-The routed 10 ns A7-100T build meets all timing constraints with WNS
-`+0.139 ns`, TNS `0`, and zero failing endpoints. The bitstream and reports are
-under `vivado_build/arty_a7_100_multi_lanes4_10ns/`.
-
-Exact regression command:
-
-```powershell
-.\scripts\run_tb_top_uart_safe.ps1 -MultiExercise -NumLanes 4 `
-  -TestPlusargs "paths=1024,steps=12,S0=6553600,K=6553600,r=3277,sigma=13107,T=65536,opt=1,expected_price=428757" `
-  -XsimTimeoutSeconds 1200 -NoCleanup
+```text
+vivado_build/arty_a7_100_multi_lanes4_9p5ns_rowopt/generated_ip/fxDiv_core/fxDiv_core/sim/fxDiv_core.vhd
 ```
 
-## Product Gates
+Validated results:
 
-For portfolio, scenario, and Greeks work, add focused tests as files are created.
+| Case | C++ raw | RTL raw | Delta | Core cycles |
+|---|---:|---:|---:|---:|
+| intrinsic PUT, 4 paths x 4 steps | 3,276,800 | 3,276,800 | 0 | 1,966 |
+| multi PUT, 1,024 paths x 4 steps | 391,343 | 391,343 | 0 | 91,302 |
+| multi PUT, 1,024 paths x 12 steps | 428,757 | 428,757 | 0 | 293,790 |
 
-Minimum expectations:
+The calibrated stub produces the same canonical four-lane price and cycle
+counts. That agreement allows faster regression sweeps while the evidence
+collector still requires the vendor model for a claim-ready report.
 
-- CSV parsing rejects malformed contracts with clear row-level errors.
-- `--target cpu` works without a board.
-- `--target both` reports CPU/FPGA raw words and requires exact equality when
-  hardware is available.
-- Scenario reports preserve contract IDs and scenario names.
-- Greek reports record bump sizes and base/bumped prices.
-- Product scripts do not change the kernel parity contract unless explicitly versioned.
-
-Likely first commands:
+Run the complete evidence simulation path with:
 
 ```powershell
-python -m py_compile scripts\portfolio_price.py scripts\scenario_sweep.py
-python scripts\portfolio_price.py --portfolio examples\portfolio.csv --output-dir .tmp\portfolio_smoke --target cpu
-python scripts\scenario_sweep.py --portfolio examples\portfolio.csv --scenarios examples\scenarios.csv --output-dir .tmp\scenario_smoke --target cpu
-git diff --check
+python scripts\reproduce_claims.py `
+  --cpp-mode run `
+  --xsim-mode run `
+  --benchmark-mode run `
+  --vivado-mode run `
+  --require-complete
 ```
 
-## Vivado Gates
+This collector fingerprints the exact generated divider model and the
+implementation/simulation/C++ source sets.
 
-A7-100T multi-date 100 MHz:
+## Board-Configuration Gate
+
+Only results rerun with corrected generated divider IP are current evidence:
+
+| Board configuration | Workload | Expected raw | Expected cycles |
+|---|---|---:|---:|
+| A7, 4 lanes | 1,024 x 4 multi PUT | 391,343 | 91,302 |
+| A7, 4 lanes | 1,024 x 12 multi PUT | 428,757 | 293,790 |
+| S7, 2 lanes | 1,024 x 4 multi PUT | 391,343 | 159,398 |
+
+The scripts still accept A7 lane counts 1/2/4 and S7 lane counts 1/2, but a
+legal parameter is not a validated performance row. Simulate each new
+lane/workload pair before citing its price or cycles. The path count must be
+divisible by the selected lane count.
+
+## C++ Parity Gate
+
+Build the mirror:
 
 ```powershell
-.\scripts\run_vivado_build_arty_a7.ps1 -MultiExercise -NumLanes 4 -ClockPeriodNs 10 -TimeoutSeconds 21600
+cd baseline\cpp_fixed
+g++ -std=c++17 -O3 -DNDEBUG main.cpp pricing.cpp linalg.cpp rtl_math.cpp sobol_wrapper.cpp utils.cpp -o fixed_baseline
+cd ..\..
 ```
 
-Expected artifacts:
-
-- `vivado_build/arty_a7_100_multi_lanes4_10ns/timing_post_route.rpt`
-- `vivado_build/arty_a7_100_multi_lanes4_10ns/utilization.rpt`
-- `vivado_build/arty_a7_100_multi_lanes4_10ns/arty_a7_qmc_multi.bit`
-
-Expected timing:
-
-- WNS `+0.139 ns`
-- TNS `0`
-- 0 failing endpoints
-
-Expected resources:
-
-- 45,955 LUTs
-- 46,905 registers
-- 180 DSP48E1
-- 66 block-RAM tiles
-
-S7-50 multi-date 100 MHz reroute (June 24 pre-hardening values are references):
+Canonical runs:
 
 ```powershell
-.\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -NumLanes 1 -ClockPeriodNs 10 -TimeoutSeconds 21600
+.\baseline\cpp_fixed\fixed_baseline.exe `
+  --input-file baseline\cpp_fixed\params_latency_1024x4.txt `
+  --fpga-style `
+  --exercise-mode multi
+
+.\baseline\cpp_fixed\fixed_baseline.exe `
+  --input-file baseline\cpp_fixed\params_monthly_1024x12.txt `
+  --fpga-style `
+  --exercise-mode multi
 ```
 
-Expected artifacts:
+Expected raw outputs are 391,343 and 428,757. Raw Q16.16 equality is the parity
+criterion; a close decoded decimal is not enough.
 
-- `vivado_build/arty_s7_50_multi_lanes1_10ns/timing_post_route.rpt`
-- `vivado_build/arty_s7_50_multi_lanes1_10ns/utilization.rpt`
-- `vivado_build/arty_s7_50_multi_lanes1_10ns/arty_s7_qmc_multi.bit`
+## Financial-Accuracy Gate
 
-June 24 pre-hardening timing measurement:
+Bit-exact parity proves that C++ and RTL implement the same arithmetic. It does
+not prove that the shared method is a sufficiently accurate option model.
 
-- WNS `+0.310 ns`
-- TNS `0`
-- 0 failing endpoints
-
-June 24 pre-hardening resource measurement:
-
-- 23,399 LUTs
-- 28,967 registers
-- 84 DSP48E1
-- 65 block-RAM tiles
-
-S7-50 multi-date 2-lane reroute at relaxed clock (June 24 pre-hardening values are references):
-
-```powershell
-.\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -NumLanes 2 -ClockPeriodNs 10.5 -TimeoutSeconds 21600
-```
-
-Expected artifacts:
-
-- `vivado_build/arty_s7_50_multi_lanes2_10p5ns/timing_post_route.rpt`
-- `vivado_build/arty_s7_50_multi_lanes2_10p5ns/utilization.rpt`
-- `vivado_build/arty_s7_50_multi_lanes2_10p5ns/arty_s7_qmc_multi.bit`
-
-June 24 pre-hardening timing measurement (95.24 MHz / 10.5 ns):
-
-- WNS `+0.083 ns`
-- TNS `0`
-- 0 failing endpoints
-
-June 24 pre-hardening resource measurement:
-
-- 30,606 LUTs
-- 34,855 registers
-- 116 DSP48E1
-- 65 block-RAM tiles
-
-At 95.24 MHz the 1,024x12 two-lane compute window is 411,626 cycles = 4.322 ms.
-
-## Accuracy Gates
-
-These gates measure financial quality, not C++/RTL parity.
+Use the independent reference studies:
 
 ```powershell
 python scripts\accuracy_study.py --preset smoke --build-cpu --attribution
 python scripts\accuracy_study.py --preset default --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_default_health
-python scripts\accuracy_study.py --preset smoke --paths-list 1024,4096,8192 --steps-list 12,20 --moneyness-list 0.6,0.8,1.0,1.2,1.4 --sigma-list 0.05,0.2,0.4,0.6 --option-types put,call --exercise-mode both --build-cpu --attribution --health-metrics --output-dir .tmp\accuracy_stress_health
 ```
 
-Outputs:
+The canonical 1,024 x 4 CRR comparison in the generated evidence is
+`-11.8765` basis points of spot. It is one workload/reference comparison, not a
+global error guarantee. See [`accuracy.md`](accuracy.md).
 
-- `accuracy_results.csv`
-- `accuracy_summary.md`
-- `health/health_rows.csv`
+## Routed Implementation Gate
 
-Interpretation:
+A passing board build requires all of the following:
 
-- Use `abs_bps_spot` for market-style error.
-- Use `multi_fixed_point_bps_spot` to judge hardware arithmetic impact.
-- Use health metrics to catch regression instability.
-- For no-dividend CALLs, early exercise should be suppressed.
+- correct part and top;
+- requested generated core period in Clock Summary;
+- complete route;
+- WNS >= 0;
+- TNS = 0;
+- setup failing endpoints = 0;
+- WHS >= 0;
+- THS = 0;
+- hold failing endpoints = 0;
+- no failed, unrouted, partial, or overlapping nets;
+- bitstream generated only after those checks;
+- manifest and report hashes retained.
 
-## Diagnosis Flow
+### A7-100T canonical
 
-Use diagnosis whenever parity breaks.
+```text
+Project: vivado_build/arty_a7_100_multi_lanes4_9p5ns_rowopt/gui_post_synth/arty_a7_qmc_post_synth.xpr
+Part: xc7a100tcsg324-1
+Mode/lanes: multi / 4
+Core: 9.500 ns, 105.263158 MHz
+WNS/TNS: +0.121 ns / 0.000 ns
+WHS/THS: +0.008 ns / 0.000 ns
+LUT: 44,768 / 63,400
+Registers: 49,241 / 126,800
+DSP: 180 / 240
+BRAM: 66 / 135
+Bit SHA-256: 708C312F611909598B9B509B57F08D07C3A247CB9FC0C15820CAD5B7557CE8EF
+Adjacent faster build: 9.375 ns, WNS -0.153 ns, no bitstream
+```
+
+### S7-50 canonical
+
+```text
+Project: vivado_build/arty_s7_50_multi_lanes2_10p5ns_rowopt/gui_post_synth/arty_s7_qmc_post_synth.xpr
+Part: xc7s50csga324-1
+Mode/lanes: multi / 2
+Core: 10.500 ns, 95.238095 MHz
+WNS/TNS: +0.165 ns / 0.000 ns
+WHS/THS: +0.011 ns / 0.000 ns
+LUT: 30,243 / 32,600
+Registers: 36,779 / 65,200
+DSP: 116 / 120
+BRAM: 65 / 75
+Bit SHA-256: 729F8D9099A1A84B81C4D784FF7EF18343B72C364C897557F537692A173C5178
+Adjacent faster build: 10.375 ns, WNS -0.228 ns, no bitstream
+```
+
+Build commands:
 
 ```powershell
-python scripts\diagnose_numerical.py --paths 4 --steps 4 --option-type 1 --exercise-mode multi
-python scripts\diagnose_numerical.py --paths 8 --steps 12 --option-type 1 --exercise-mode multi
-python scripts\diagnose_numerical.py --paths 64 --steps 12 --option-type 1 --exercise-mode multi
+.\scripts\run_vivado_build_arty_a7.ps1 -MultiExercise -NumLanes 4 -ClockPeriodNs 9.5 -TimeoutSeconds 21600
+.\scripts\run_vivado_build_arty_s7.ps1 -MultiExercise -NumLanes 2 -ClockPeriodNs 10.5 -TimeoutSeconds 21600
 ```
 
-The script compares raw C++ and RTL Q16.16 trace tags:
+## Freshness and Provenance Gate
 
-- `[INIT]`
-- `[PATH]`
-- `[ACC-IN]`
-- `[ACC-SUM]`
-- `[BETA]`
-- `[LSM]`
-- `[PV]`
-- `[FINAL]`
+`results/claims/claim_evidence.json` records:
 
-The correct workflow is to fix the first divergent stage before looking at final price.
+- git commit and dirty-worktree state;
+- implementation, simulation, and C++ source hashes;
+- generated divider-model hash;
+- compiler and CPU identity;
+- Vivado version, device, top, core, lanes, and routed clock source;
+- input report paths and hashes;
+- raw prices, cycles, and benchmark aggregates;
+- every reason a report is or is not claim-ready.
 
-## Hardware UART Run
+The current combined source fingerprint is:
 
-A7-100T:
+```text
+dbe34c6eb5503063ca63551f817a0fe27e7128686a08d2bac4e8251b7eb2ea35
+```
+
+A dirty worktree is acceptable only because the fingerprint binds the evidence
+to exact contents. A polished release should commit the verified source and
+regenerate evidence so commit and source state agree cleanly.
+
+## CPU Benchmark Gate
+
+Google Benchmark acceptance requires:
+
+- Release mode;
+- all three named complete-pricing boundaries;
+- exact 1,024 x 4 and 1,024 x 12 workloads;
+- at least 15 repetitions;
+- expected raw-price checks inside timed fixtures;
+- machine-readable JSON;
+- recorded compiler and CPU;
+- no substitution of process-startup timing for a kernel boundary.
+
+The corrected means are in [`performance.md`](performance.md) and the generated
+claim report. Do not compare Google Benchmark to UART round-trip and call the
+ratio a core speedup.
+
+## UART Protocol Gate
+
+For one hardware job:
+
+1. host packs eight 32-bit parameter words;
+2. FPGA echoes all eight;
+3. FPGA sends marker `0xABCD0001`;
+4. FPGA sends signed Q16.16 raw price;
+5. FPGA sends low and high cycle words;
+6. host verifies exercise mode and lane assertion;
+7. `--target both` requires exact CPU/FPGA raw parity.
+
+Correct S7 command:
 
 ```powershell
-.\scripts\program_arty_a7.ps1 -Bit vivado_build\arty_a7_100_multi_lanes4_10ns\arty_a7_qmc_multi.bit
-python src\uart_host.py --mode benchmark --target both --param-file baseline\cpp_fixed\params_latency_1024x4.txt --exercise-mode multi --num-lanes 4 --port COM4 --fpga-fclk-hz 100000000 --build-cpu
+python src\uart_host.py `
+  --mode benchmark `
+  --target both `
+  --param-file baseline\cpp_fixed\params_latency_1024x4.txt `
+  --exercise-mode multi `
+  --num-lanes 2 `
+  --port COM4 `
+  --fpga-fclk-hz 95238095 `
+  --fpga-repetitions 30 `
+  --build-cpu
 ```
 
-S7-50 uses the same host UART flow after programming through Vivado Hardware
-Manager or a board-specific programming script. Do not use the retained June
-bitstreams for current C++/RTL parity claims; regenerate them from the hardened
-source first.
+Acceptance values are raw price 391,343 and 159,398 cycles. Record the physical
+return rather than silently replacing it with the model.
 
-The host reports:
+## Current Physical Status
 
-- FPGA price,
-- C++ mirror price,
-- exact Q16.16 parity status,
-- `core_cycles`,
-- FPGA core seconds,
-- UART round-trip seconds,
-- CPU reported interval and its boundary label.
+The checked programmer detected `xc7s50` and loaded the retained S7 image. All
+30 repetitions returned raw price 391,343 and 159,398 cycles. The physical core
+interval is 1.673679 ms; guarded UART transport p50/p95/p99 is
+31.981/32.764/33.207 ms.
 
-It deliberately does not print a generic CPU/FPGA speedup because core,
-transport, and CPU intervals have different boundaries.
+The UART receiver now uses a two-stage asynchronous synchronizer and rejects bad
+stop bits. The host sends each request word separately with a 2 ms guard because
+unpaced FTDI bursts produced framing errors. The guard is included in transport,
+not core time. The earlier zero-price image remains excluded.
 
-## Acceptance Criteria For Future Changes
+## Automated Python Regression
 
-Future product work should keep this kernel stable:
+Run all repository tests:
 
-- C++ and RTL must return exactly the same raw Q16.16 word unless the algorithm
-  contract is intentionally versioned and both implementations change together.
-- The current A7-100T 100 MHz build must continue to meet timing. A hardened
-  S7-50 route must meet timing before an S7 bitstream is promoted as current.
-- No change should reintroduce `u_q16=0` into inverse-CDF.
-- CALL early exercise should remain suppressed until a dividend-yield input exists.
-- Regression health metrics should remain bounded before any RTL expansion.
-- UART packet format should stay unchanged unless the product phase deliberately versions it.
+```powershell
+python -m unittest discover -s tests -v
+```
+
+Focused evidence tests:
+
+```powershell
+python -m unittest tests.test_reproduce_claims -v
+python -m unittest tests.test_uart_host -v
+```
+
+The test suite checks parsers, provenance rules, cycle expectations, UART
+framing/error behavior, and evidence-report requirements. It does not replace
+xsim or Vivado; it protects the tooling around them.
+
+## Release Decision
+
+A corrected release is ready for source-level and routed claims when Levels 1
+through 5 pass and the tracked evidence says `CLAIM-READY`. S7 physical and
+transport claims are ready after Levels 6 and 7; A7 physical claims remain
+pending.
+
+When a defect changes a vendor-IP contract, invalidate every downstream artifact
+instead of updating only the final table. That is the central lesson of this
+validation pass.

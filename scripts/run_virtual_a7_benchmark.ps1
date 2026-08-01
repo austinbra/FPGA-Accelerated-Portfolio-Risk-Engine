@@ -13,7 +13,7 @@
 param(
     [string]$ParamFile = "",
     [int]$NumLanes = 4,
-    [double]$FclkHz = 100000000.0,
+    [double]$FclkHz = 105263158.0,
     [ValidateSet("Single", "Multi")]
     [string]$ExerciseMode = "Multi",
     [int]$XsimTimeoutSeconds = 7200,
@@ -107,7 +107,7 @@ if ($S0 -le 0 -or $K -le 0 -or $sig -le 0 -or $Tt -le 0) {
 @($S0, $K, $rf, $sig, $Tt) | ForEach-Object { $null = Q16FromDouble $_ }
 $isHeadlineConfig = (
     $ExerciseMode -eq "Multi" -and $NumLanes -eq 4 -and
-    [math]::Abs($FclkHz - 100000000.0) -lt 0.5
+    [math]::Abs($FclkHz - 105263158.0) -lt 0.5
 )
 
 $plus = @(
@@ -127,7 +127,7 @@ if ($ReportFormat -eq "Verbose") {
     Write-Host "  NUM_LANES:   $NumLanes"
     Write-Host "  Exercise:    $ExerciseMode"
     Write-Host "  Clock assertion: $FclkHz Hz (used only to scale simulated core cycles)"
-    if ($isHeadlineConfig) { Write-Host "  Routed reference: headline multi/4-lane/100-MHz configuration" }
+    if ($isHeadlineConfig) { Write-Host "  Routed reference: canonical multi/4-lane/105.263-MHz configuration" }
     Write-Host "  Plusargs:    $($plus -join ' ')"
 }
 
@@ -240,12 +240,12 @@ if ($ReportFormat -eq "Verbose") {
     Write-Host ('  Price |dbl delta|: {0}  (rel {1:F4} %; double can diverge at low N)' -f $delta, $rel)
     Write-Host "  Timing ratio:      not reported here; use results/claims for named CPU boundaries"
 
-    if (-not $TimingReport -and $isHeadlineConfig) { $TimingReport = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_10ns\timing_post_route.rpt" }
-    if (-not $UtilReport -and $isHeadlineConfig) { $UtilReport = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_10ns\utilization.rpt" }
+    if (-not $TimingReport -and $isHeadlineConfig) { $TimingReport = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_9p5ns_rowopt\timing_post_route.rpt" }
+    if (-not $UtilReport -and $isHeadlineConfig) { $UtilReport = Join-Path $repo "vivado_build\arty_a7_100_multi_lanes4_9p5ns_rowopt\utilization.rpt" }
     if (Test-Path $TimingReport) {
         Write-Host ""
         Write-Host "Reference (last build, if present): $TimingReport"
-        Select-String -Path $TimingReport -Pattern "WNS\(ns\)|sys_clk|100\.000|10\.000" | Select-Object -First 8 | ForEach-Object { Write-Host "  $($_.Line.Trim())" }
+        Select-String -Path $TimingReport -Pattern "WNS\(ns\)|core_clk_unbuffered|105\.263|9\.500" | Select-Object -First 8 | ForEach-Object { Write-Host "  $($_.Line.Trim())" }
     }
     if (Test-Path $UtilReport) {
         Write-Host "Reference: $UtilReport (slice LUT summary)"

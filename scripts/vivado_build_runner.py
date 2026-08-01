@@ -28,6 +28,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--synth-only", action="store_true")
     parser.add_argument("--multi-exercise", action="store_true")
     parser.add_argument("--clock-period-ns", type=str, default="")
+    parser.add_argument(
+        "--tclarg",
+        action="append",
+        default=[],
+        help="Additional Tcl argument; repeat for multiple arguments.",
+    )
     return parser.parse_args()
 
 
@@ -57,6 +63,9 @@ def main() -> int:
     env["Path"] = os.pathsep.join(
         [vivado_bin, str(Path(system_root) / "System32"), system_root, current_path]
     )
+    # Isolate Vivado's user state as well as its temporary files. Besides
+    # keeping the repo clean, this prevents malformed per-user Tcl-app settings
+    # from affecting a reproducible batch build.
     env["APPDATA"] = str(appdata)
     env["LOCALAPPDATA"] = str(localappdata)
     env["USERPROFILE"] = str(userprofile)
@@ -67,7 +76,7 @@ def main() -> int:
     if args.clock_period_ns:
         env["VIVADO_CLOCK_PERIOD_NS"] = args.clock_period_ns
 
-    tclargs = []
+    tclargs = list(args.tclarg)
     if args.synth_only:
         tclargs.append("--synth-only")
     if args.multi_exercise:
@@ -79,6 +88,8 @@ def main() -> int:
         str(vivado),
         "-mode",
         "batch",
+        "-nolog",
+        "-nojournal",
         "-source",
         str(tcl_script),
     ]
@@ -110,27 +121,10 @@ def main() -> int:
                 stderr=subprocess.DEVNULL,
                 check=False,
             )
-            # Vivado's Windows launcher can detach vivado.exe from the .bat/cmd
-            # parent. On timeout, clean up stale Vivado processes so the next
-            # run does not inherit a wedged background build.
-            subprocess.run(
-                ["taskkill", "/IM", "vivado.exe", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            subprocess.run(
-                [
-                    "powershell",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "Stop-Process -Name vivado -Force -ErrorAction SilentlyContinue",
-                ],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            # Never kill by image name here: another Vivado GUI or build may
+            # belong to the user. taskkill /T is deliberately scoped to this
+            # launcher's process tree; any detached survivor is reported in the
+            # log and can be inspected explicitly.
             elapsed = time.time() - start
             print(f"ERROR: Vivado timed out after {elapsed:.1f}s; killed PID tree rooted at {proc.pid}")
             print(f"Log: {log_file}")

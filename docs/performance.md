@@ -1,212 +1,205 @@
-# Stored-Path Multi-Lane Performance Evidence
+# Corrected Performance Results
 
-Last updated: 2026-07-29
+This document is the performance source of truth after the divider packet,
+handshake, simulator-binding, and row-counter corrections. It keeps simulation,
+post-route conversion, CPU benchmarking, UART transport, and physical hardware
+as separate evidence boundaries.
 
-This is the durable source for published performance claims and engineering review. It
-separates cycle-accurate simulation, post-route board results, optimized C++
-timings, and financial-reference error so unlike quantities are not mixed.
+## Measurement Boundaries
 
-## Implemented Architecture
+### FPGA core interval
 
-- Every simulated spot is generated once and stored in lane-banked block RAM.
-- Each lane owns its path and cashflow bank, so all lanes can read and write in
-  the same cycle without a shared-memory port conflict.
-- Independent paths are scheduled step-major through replicated
-  Sobol/inverse-CDF/GBM pipelines.
-- Lane-local feature workers accumulate exact 64-bit LSM sufficient statistics;
-  the statistics are reduced globally before the shared regression solve.
-- The final 64-bit average divider separates shift, compare, and subtract phases
-  to remove a long timing path. This costs 128 cycles per complete price, only
-  1.28 microseconds at 100 MHz.
-- Active capacity is 1,024 paths by 50 simulated dates. Larger jobs need
-  BRAM-sized batching; they are rejected rather than silently overflowing.
+```text
+complete job accepted -> result_valid
+```
 
-Stored path capacity is 51,200 Q16.16 values, or 1,638,400 logical bits
-(200 KiB), plus 1,024 Q16.16 cashflows (4 KiB). Physical BRAM consumption is
-higher because FPGA RAM primitives have width/depth granularity.
+It includes initialization, Sobol/GBM generation, stored paths, regression,
+exercise decisions, averaging, and result writeback. It excludes UART, USB,
+Python, and host scheduling.
 
-## Why 1,024 Paths And 4 Or 12 Steps
+```text
+core_time = core_cycles / implemented_core_frequency
+```
 
-1,024 is not a magic accuracy threshold. It is the largest currently validated
-stored-path job, a power of two that is natural for Sobol QMC, divides evenly
-across 1/2/4/8 lanes, gives the three-term LSM regression hundreds of in-the-money
-samples in the studied cases, and fits the chosen BRAM budget. Four steps define
-the canonical latency workload. Twelve steps approximate monthly
-exercise dates over a one-year option and define the representative monthly
-exercise workload. Neither is a universal production setting.
+### FPGA transport interval
 
-More paths generally reduce QMC and regression sampling error. More dates make
-the early-exercise grid finer. Both increase work approximately linearly, and
-neither changes the Q16.16 arithmetic contract.
+```text
+host begins UART write -> host receives all four result words
+```
 
-## Exact Four-Lane Workload Matrix
+This includes serial transfer, USB bridge behavior, Python/OS scheduling,
+protocol handling, and the FPGA core interval.
 
-All rows are multi-date American PUT jobs with S0=K=100, r=5%, sigma=20%, T=1.
-Every raw price matches the C++ RTL mirror exactly. UART time is excluded.
+### CPU boundaries
 
-| Paths | Steps | Raw Q16.16 price | Core cycles | Time at 100 MHz |
-|------:|------:|-----------------:|------------:|----------------:|
-| 64 | 4 | 426,130 | 5,034 | 0.05034 ms |
-| 64 | 12 | 373,676 | 15,802 | 0.15802 ms |
-| 64 | 24 | 356,530 | 32,142 | 0.32142 ms |
-| 64 | 50 | 389,580 | 67,604 | 0.67604 ms |
-| 256 | 4 | 395,487 | 18,498 | 0.18498 ms |
-| 256 | 12 | 426,642 | 59,754 | 0.59754 ms |
-| 256 | 24 | 384,128 | 121,958 | 1.21958 ms |
-| 256 | 50 | 385,641 | 257,140 | 2.57140 ms |
-| 1,024 | 4 | 391,343 | 72,394 | 0.72394 ms |
-| 1,024 | 12 | 428,757 | 236,362 | 2.36362 ms |
-| 1,024 | 24 | 408,031 | 483,694 | 4.83694 ms |
-| 1,024 | 50 | 396,582 | 1,017,700 | 10.17700 ms |
+- **Hot kernel:** Sobol directions and path storage persist.
+- **Pricing core:** path allocation is included.
+- **End to end:** direction-file loading is also included.
 
-The 1,024x12 row sustains about 433,231 complete paths/s or 5.199 million
-path-date evaluations/s. Across the larger rows, throughput stays close to
-5 million path-date evaluations/s, which is the more transferable measure when
-the number of exercise dates changes.
+Every reported ratio is:
 
-## Lane Scaling At 1,024 Paths By 12 Steps
+```text
+named CPU mean real time / FPGA core time
+```
 
-Every lane count returns raw Q16.16 `428757` (`0x00068AD5`) exactly.
+It is not a system speedup because the two sides intentionally name different
+boundaries.
 
-| Lanes | Core cycles | Time at 100 MHz | Scaling vs one lane | Speedup vs 7,370,906-cycle v1 |
-|------:|------------:|----------------:|--------------------:|--------------------------------:|
-| 1 | 720,474 | 7.20474 ms | 1.00x | 10.23x |
-| 2 | 411,626 | 4.11626 ms | 1.75x | 17.91x |
-| 4 | 236,362 | 2.36362 ms | 3.05x | 31.18x |
-| 8 | 121,290 | 1.21290 ms | 5.94x | 60.77x |
+## Invalidated Evidence
 
-The eight-lane row is simulation evidence, not a board-fit claim. The physical
-A7-100T result is four lanes. Fixed initialization, shared regression, final
-division, and lane synchronization explain why scaling is strong but sublinear.
+Xilinx `div_gen` returns the 48-bit quotient in `[79:32]` after a
+32-cycle contract. The old wrapper selected `[47:16]`, and an old XSim work
+library could bind the one-cycle stub even when a vendor model was requested.
+The regression controller also needed to retain accepted divider outputs.
 
-## Routed Board Configurations
+Do not cite:
 
-| Target / config | Clock | WNS | LUT | DSP | RAMB36 | 1,024x12 time | Status |
-|-----------------|-------|----:|----:|----:|-------:|--------------:|--------|
-| A7-100T, 4 lanes | 100 MHz | +0.139 ns | 45,955 (72.48%) | 180 (75.00%) | 66 (48.89%) | 2.364 ms | Post-hardening routed deliverable |
-| S7-50, 1 lane | 100 MHz | +0.310 ns | 23,399 (71.78%) | 84 (70.00%) | 65 (86.67%) | 7.205 ms | June 24 pre-hardening route |
-| S7-50, 2 lanes | 95.24 MHz | +0.083 ns | 30,606 (93.88%) | 116 (96.67%) | 65 (86.67%) | 4.322 ms | June 24 pre-hardening route at relaxed clock; fails 100 MHz by -0.180 ns |
+- the old 72,394/236,362 or 90,233/290,561 cycle pairs;
+- the old S7 response with price zero and 116,733 cycles;
+- pre-correction routed timing, utilization, bitstream hashes, or ratios;
+- lane-scaling rows that were not rerun with the corrected generated model.
 
-The preceding A7 route measured +0.144 ns WNS, 45,875 LUTs, 46,911
-registers, 180 DSPs, and 66 RAMB36. It remains a historical build measurement;
-the table uses the regenerated July 29, 2026 route.
+The fixed-point C++ prices and independent financial-reference studies did not
+depend on the faulty RTL interface.
 
-The A7-100T four-lane build is the fastest routed configuration. The June 24
-pre-hardening S7 evidence showed a one-lane ceiling at 100 MHz; its two-lane
-configuration fit but only closed at 95.24 MHz (10.5 ns, WNS +0.083 ns). Those
-S7 timing and utilization measurements remain historical evidence, but their
-bitstreams predate the valuation-time intrinsic floor and need regeneration.
-Eight lanes does not fit any evaluated board.
+## Claim-Grade RTL Results
 
-## Optimized C++ Comparison
+Fresh full-core XSim runs use the generated Vivado `div_gen` behavioral VHDL.
+C++ and RTL raw Q16.16 results are bit-exact.
 
-All measurements below used a 13th Gen Intel Core i9-13905H, 20 logical CPUs,
-MinGW Release `-O3 -DNDEBUG`, and one benchmark thread.
+| Configuration | Workload | Raw Q16.16 | Decoded price | Core cycles |
+|---|---|---:|---:|---:|
+| A7 target, 4 lanes | 1,024 x 4 PUT/multi | 391,343 | 5.97142029 | 91,302 |
+| A7 target, 4 lanes | 1,024 x 12 PUT/multi | 428,757 | 6.54231262 | 293,790 |
+| S7 target, 2 lanes | 1,024 x 4 PUT/multi | 391,343 | 5.97142029 | 159,398 |
 
-### Current Tracked Claim Run (15 Repetitions)
+The 4-path x 4-step intrinsic PUT unit workload also passes with raw price
+`0x00320000`. New lane/workload combinations must be rerun; they are not
+inferred from these rows.
 
-The current `results/claims/claim_evidence.md` report regenerated both
-canonical workloads and verified the expected raw price every iteration. Each
-ratio is the named CPU interval divided by FPGA core latency; it is not a
-general speedup claim.
+## Routed Implementations
 
-| Workload | C++ timing boundary | Mean | FPGA core | Boundary-specific ratio |
-|----------|---------------------|-----:|----------:|------------------------:|
-| 1,024x4 | Hot kernel: direction and path storage persistent | 0.725242 ms | 0.723940 ms | 1.002x |
-| 1,024x4 | Pricing core plus path allocation | 0.844558 ms | 0.723940 ms | 1.167x |
-| 1,024x4 | End-to-end plus direction-file load | 0.967301 ms | 0.723940 ms | 1.336x |
-| 1,024x12 | Hot kernel: direction and path storage persistent | 1.870528 ms | 2.363620 ms | 0.791x |
-| 1,024x12 | Pricing core plus path allocation | 1.841793 ms | 2.363620 ms | 0.779x |
-| 1,024x12 | End-to-end plus direction-file load | 2.076906 ms | 2.363620 ms | 0.879x |
+| Target | Core period/frequency | WNS | WHS | LUT | Registers | DSP | BRAM |
+|---|---|---:|---:|---:|---:|---:|---:|
+| A7-100T, 4 lanes | 9.500 ns / 105.263 MHz | +0.121 ns | +0.008 ns | 44,768 (70.61%) | 49,241 (38.83%) | 180 (75.00%) | 66 (48.89%) |
+| S7-50, 2 lanes | 10.500 ns / 95.238 MHz | +0.165 ns | +0.011 ns | 30,243 (92.77%) | 36,779 (56.41%) | 116 (96.67%) | 65 (86.67%) |
 
-### Historical Run (30 Repetitions)
+Both have TNS = 0, THS = 0, zero setup/hold failing endpoints, and complete
+routes.
 
-The following separately measured 30-repetition results are retained as
-historical evidence; they are not outputs of the current 15-repetition claim
-command:
+### Cycle-derived latency
 
-| C++ timing boundary | Mean | Median | Std. dev. | A7 four-lane speed factor (CPU / 2.36362 ms) |
-|---------------------|-----:|-------:|----------:|--------------------------------------------:|
-| Hot kernel: direction and path storage persistent | 1.285 ms | 1.283 ms | 0.055 ms | 0.54x |
-| Pricing core plus path allocation | 1.336 ms | 1.332 ms | 0.148 ms | 0.57x |
-| End-to-end plus direction-file load | 1.860 ms | 1.851 ms | 0.083 ms | 0.79x |
+| Target | Workload | Cycles | Routed-clock interval |
+|---|---|---:|---:|
+| A7 9.500 ns, 4 lanes | 1,024 x 4 | 91,302 | 0.867369 ms |
+| A7 9.500 ns, 4 lanes | 1,024 x 12 | 293,790 | 2.791005 ms |
+| S7 10.500 ns, 2 lanes | 1,024 x 4 | 159,398 | 1.673679 ms |
 
-For 1,024x12, the current run makes the optimized CPU 1.14x to 1.28x faster
-than the routed A7 engine, depending on the named boundary; the historical run
-put that range at 1.27x to 1.84x. All three 1,024x4 ratios exceed one in this
-particular run, but the hot-kernel result is within 0.2% and each ratio still
-compares a named CPU boundary with FPGA core time. It is therefore not a
-general FPGA speedup claim. Against the historical means,
-the simulation-only eight-lane RTL would be 1.06x faster than the hot C++ mean
-and 1.53x faster than the file-loading mean, but it does not fit the evaluated
-boards.
+The A7 rows are post-route, cycle-derived intervals. The S7 1,024 x 4 interval
+is also physically confirmed by the corrected bitstream's internal cycle
+counter.
 
-The CPU wins the 1,024x12 case because it runs at multi-GHz frequency with
-large caches and out-of-order execution, while the FPGA is proven at 100 MHz,
-fits only four replicated lanes on A7, and still performs serialized
-fixed-point inverse-CDF, feature-worker, regression, and control phases. The
-FPGA's strongest public claim is the absolute routed latency and verification
-evidence, not a generalized comparison with a modern i9.
+## Period Boundaries
 
-## Legacy Single-Date Comparison
+The build scripts accept legal MMCM periods in 0.125 ns increments. For the
+tested Vivado 2025.1 strategy and seed:
 
-The legacy single-exercise engine and active multi-date engine price different
-financial models, so their prices and runtimes are not an apples-to-apples
-speedup comparison. The rows remain useful architecture evidence.
+| Target | Passing selection | Adjacent faster failure |
+|---|---|---|
+| A7-100T, 4 lanes | 9.500 ns, WNS +0.121 ns | 9.375 ns, WNS -0.153 ns, TNS -14.851 ns |
+| S7-50, 2 lanes | 10.500 ns, WNS +0.165 ns | 10.375 ns, WNS -0.228 ns, TNS -1.768 ns |
 
-| Engine | Lanes | 1,024x12 cycles | 100 MHz time | Raw price |
-|--------|------:|----------------:|-------------:|----------:|
-| Legacy single-date | 1 | 1,206,483 | 12.06483 ms | 360,645 |
-| Legacy single-date | 2 | 615,635 | 6.15635 ms | 360,645 |
-| Legacy single-date | 4 | 320,211 | 3.20211 ms | 360,645 |
-| Legacy single-date | 8 | 172,499 | 1.72499 ms | 360,645 |
-| Stored multi-date | 1 | 720,474 | 7.20474 ms | 428,757 |
-| Stored multi-date | 2 | 411,626 | 4.11626 ms | 428,757 |
-| Stored multi-date | 4 | 236,362 | 2.36362 ms | 428,757 |
-| Stored multi-date | 8 | 121,290 | 1.21290 ms | 428,757 |
+These bracket the selected configurations. They are not universal silicon
+`fmax` guarantees.
 
-The richer multi-date engine is faster here because stored paths and
-interleaving eliminate the legacy controller's repeated/serialized work.
+## RTL Optimization Result
 
-## Accuracy Evidence And Limits
+The low-risk optimization in this pass:
 
-- Hardware/software parity: zero Q16.16 LSB difference for all 12 performance
-  matrix rows and all validated lane counts.
-- The repository's 12-case, N=1,024/M=12 financial study reports average
-  fixed-point attribution of 2.57 bps of spot for PUTs and 1.52 bps for CALLs;
-  the worst fixed-point contribution is 4.92 bps of spot.
-- Total estimator/model error versus the American CRR reference is larger:
-  average 49.32 bps of spot for PUTs and 41.66 bps for CALLs, with a 94.36-bp
-  worst case in that study. Do not describe total financial error as below
-  0.5% across the whole grid.
-- For the single canonical latency workload (1,024 paths by 4 steps), raw
-  `391343` is 5.971420 versus CRR 6.090185, a signed error of -11.8765 bps of
-  spot. This is one workload, not a global accuracy guarantee.
-- The separate 1,024-path by 12-step case returns raw `428757`, or 6.54231;
-  older notes compared it with the same approximately 6.09019 CRR reference.
-  It is the representative monthly-exercise case, not the headline latency case.
+- registered the valuation intrinsic in the existing initialization state;
+- narrowed row and path counters to their actual configured ranges.
 
-Longstaff-Schwartz is often described as a lower-bound estimator because a
-suboptimal exercise policy cannot outperform the true optimal policy when it is
-evaluated independently. This implementation fits and evaluates on the same
-paths, uses a finite exercise grid, and has regression/quantization error, so it
-is not guaranteed to remain below the CRR value in every finite sample. That is
-an estimator issue even when the hardware works exactly as designed.
+This narrowed the S7 row-control logic and reduced final LUT use without
+changing raw prices or cycle counts. The final S7 worst path is
+`gen_output_row_reg[0]` to `scan_row_reg[4]/CE` and is 78.5% route delay;
+the final A7 worst path is a 23-level regression accumulation path. Further
+improvement needs placement exploration or pipelining with schedule
+revalidation, so it was not folded into this correction.
 
-## Defensible Public Claims
+## Google Benchmark Results
 
-Strong claims:
+The source-of-record run used Release mode, MinGW-W64 g++ 14.2.0, 15
+repetitions, and the same PUT/multi workloads on the recorded Intel Family 6
+Model 186 host.
 
-- 0.72394 ms for the canonical 1,024-path, 4-step latency workload on the
-  routed 100 MHz A7 implementation;
-- exact C++/RTL parity across 12 path-count/date-count workloads;
-- 2.36362 ms for the separate representative 1,024-path, 12-date monthly case;
-- 31.18x lower core-cycle count than the preserved regeneration-based RTL;
-- 5.199 million path-date evaluations/s;
-- maximum fixed-point attribution below 5 bps of spot in the documented
-  12-case N=1,024 study.
+| Workload | CPU boundary | CPU mean real time | FPGA A7 core | CPU/FPGA ratio |
+|---|---|---:|---:|---:|
+| 1,024 x 4 | hot kernel | 0.485392 ms | 0.867369 ms | 0.560x |
+| 1,024 x 4 | pricing core | 0.551170 ms | 0.867369 ms | 0.635x |
+| 1,024 x 4 | end to end | 0.889880 ms | 0.867369 ms | 1.026x |
+| 1,024 x 12 | hot kernel | 1.187450 ms | 2.791005 ms | 0.425x |
+| 1,024 x 12 | pricing core | 1.208134 ms | 2.791005 ms | 0.433x |
+| 1,024 x 12 | end to end | 1.611681 ms | 2.791005 ms | 0.577x |
 
-Do not claim the eight-lane result as an A7/S7 board result, include UART time
-inside a kernel number, compare single-date and multi-date prices as the same
-financial workload, or call the C++ comparison apples-to-apples without naming
-the timed boundary and CPU/compiler.
+For 1,024 x 4, the FPGA core is 2.6% shorter than the CPU end-to-end boundary
+but longer than the persistent CPU boundaries. For 1,024 x 12, all three CPU
+boundaries are shorter. This is a boundary-specific result, not a general
+CPU/FPGA ranking.
+
+## Google Benchmark Command
+
+When Google Benchmark is already available locally:
+
+```powershell
+cmake -S baseline\cpp_fixed -B .tmp\bench-google -G "MinGW Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build .tmp\bench-google --target qmc_google_benchmark -j
+.\.tmp\bench-google\qmc_google_benchmark.exe `
+  "--benchmark_filter=BM_(HotKernel|PricingCore|EndToEnd)MultiPutMatrix" `
+  "--benchmark_repetitions=15" `
+  "--benchmark_min_time=0.05s" `
+  "--benchmark_report_aggregates_only=true" `
+  "--benchmark_out=.tmp/google-benchmark-final.json" `
+  "--benchmark_out_format=json"
+```
+
+CMake may try to fetch Google Benchmark when it is not installed. That fetch
+requires network access; it is not evidence that the benchmark source failed.
+The corrected source-of-record JSON was produced with the existing local
+Release executable because no benchmark C++ source changed.
+
+## Physical-Board Status
+
+JTAG identified `xc7s50`, and the corrected 2-lane S7 bitstream passed 30
+physical repetitions of the canonical 1,024 x 4 multi-exercise PUT:
+
+- CPU and FPGA raw price: 391,343, bit-exact;
+- FPGA core cycles: 159,398 in every repetition;
+- core interval at 95,238,095 Hz: 1.673679 ms;
+- UART transport p50/p95/p99: 31.981/32.764/33.207 ms.
+
+The host uses guarded 32-bit request writes because unpaced FTDI bursts caused
+framing errors. That guard is included only in transport time. The previous
+zero-price run remains excluded, and there is no physical A7 measurement in
+this pass.
+
+## Claim Boundary
+
+Defensible now:
+
+- generated-IP C++/RTL bit-exact parity for the listed workloads;
+- the listed core cycles and routed-clock conversions;
+- complete A7/S7 post-route timing and utilization;
+- corrected physical S7 price/cycle parity and transport distribution;
+- the exact named CPU/FPGA ratios above;
+- a parameterized, timing-gated lane/period build flow.
+
+Not yet defensible:
+
+- physical A7 latency;
+- real board power;
+- a generic CPU/FPGA speedup;
+- production portfolio throughput;
+- a universal maximum clock.
+
+The machine-readable source of record is
+[claim_evidence.json](../results/claims/claim_evidence.json).

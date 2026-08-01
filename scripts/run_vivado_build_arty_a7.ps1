@@ -1,8 +1,9 @@
 param(
     [switch]$SynthOnly,
     [switch]$MultiExercise,
-    [ValidateSet(1, 2, 4, 8)][int]$NumLanes = 1,
-    [double]$ClockPeriodNs = 0.0,
+    [ValidateSet(1, 2, 4)][int]$NumLanes = 1,
+    [double]$ClockPeriodNs = 9.5,
+    [string]$OutputDir = "",
     [int]$TimeoutSeconds = 14400
 )
 
@@ -23,7 +24,7 @@ if ($MultiExercise) {
 } else {
     Remove-Item Env:VIVADO_MULTI_EXERCISE -ErrorAction SilentlyContinue
     Remove-Item Env:VIVADO_NUM_LANES -ErrorAction SilentlyContinue
-    $buildDir = Join-Path $repo "vivado_build\arty_a7_100"
+    $buildDir = Join-Path $repo "vivado_build\arty_a7_100_single_lanes1"
 }
 
 if ($ClockPeriodNs -gt 0.0) {
@@ -34,6 +35,18 @@ if ($ClockPeriodNs -gt 0.0) {
     Remove-Item Env:VIVADO_CLOCK_PERIOD_NS -ErrorAction SilentlyContinue
 }
 
+if ($OutputDir) {
+    if ([System.IO.Path]::IsPathRooted($OutputDir)) {
+        $resolvedOutputDir = [System.IO.Path]::GetFullPath($OutputDir)
+    } else {
+        $resolvedOutputDir = [System.IO.Path]::GetFullPath((Join-Path $repo $OutputDir))
+    }
+    $env:VIVADO_BUILD_DIR = $resolvedOutputDir
+    $buildDir = $resolvedOutputDir
+} else {
+    Remove-Item Env:VIVADO_BUILD_DIR -ErrorAction SilentlyContinue
+}
+
 Write-Host "Running Vivado batch for Arty A7-100T (repo: $repo) ..."
 if ($MultiExercise) {
     Write-Host "Mode: MULTI_EXERCISE=1, NUM_LANES=$NumLanes"
@@ -42,7 +55,7 @@ if ($MultiExercise) {
 }
 Write-Host "Build directory: $buildDir"
 if ($ClockPeriodNs -gt 0.0) {
-    Write-Host "Clock period override: $env:VIVADO_CLOCK_PERIOD_NS ns"
+    Write-Host "Generated core clock period: $env:VIVADO_CLOCK_PERIOD_NS ns"
 }
 
 $tclScript = Join-Path $PSScriptRoot "vivado_build_arty_a7.tcl"

@@ -1,17 +1,10 @@
-## Arty A7-100T (Rev. D/E master constraints pattern) — QMC-LSM top: arty_a7_option_pricer_top
+## Arty A7-100T (Rev. D/E master constraints pattern) - QMC-LSM top: arty_a7_option_pricer_top
 ## Reference: https://github.com/Digilent/digilent-xdc/blob/master/Arty-A7-100-Master.xdc
 ## Pins verified against the Digilent master XDC (2024-03 revision). If your board revision
 ## differs, update these pin assignments from your local Digilent master.
 
-set ::A7_SYS_CLK_HALF_PERIOD_NS [expr {$::A7_SYS_CLK_PERIOD_NS / 2.0}]
-
 set_property -dict { PACKAGE_PIN E3 IOSTANDARD LVCMOS33 } [get_ports CLK100MHZ]
-create_clock -add -name sys_clk -period $::A7_SYS_CLK_PERIOD_NS -waveform [list 0.000 $::A7_SYS_CLK_HALF_PERIOD_NS] [get_ports CLK100MHZ]
-# Note: the Arty A7 board provides a physical 100 MHz clock on E3, but this design targets
-# ~83 MHz (period 12 ns) for comfortable timing closure on xc7a100tcsg324-1. On real
-# hardware an MMCM would derive 83.3 MHz from the 100 MHz input; for STA-only benchmarking
-# the period here tells Vivado what fMAX to close to, and the cycle-count × period product
-# is the reportable wall-clock.
+create_clock -add -name board_clk_100mhz -period 10.000 -waveform {0.000 5.000} [get_ports CLK100MHZ]
 
 set_property -dict { PACKAGE_PIN D9 IOSTANDARD LVCMOS33 } [get_ports btn0]
 

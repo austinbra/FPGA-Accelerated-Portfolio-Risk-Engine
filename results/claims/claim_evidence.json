@@ -2,8 +2,8 @@
   "schema_version": 2,
   "claim_ready": true,
   "provenance": {
-    "generated_at_utc": "2026-07-29T23:49:45.134471+00:00",
-    "git_commit": "c031f4b24fc783fc0dc30e0185cfc2e6ae3850e6",
+    "generated_at_utc": "2026-08-01T00:50:19.471336+00:00",
+    "git_commit": "5a4e661547d494f83ea9ee519d54f797e735fa7e",
     "git_worktree_dirty": true,
     "operating_system": "Windows-11-10.0.26200-SP0",
     "current_host_cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
@@ -12,8 +12,8 @@
     "cpp_compiler": "g++ (MinGW-W64 x86_64-msvcrt-posix-seh, built by Brecht Sanders, r3) 14.2.0",
     "benchmark_compiler": "g++ (MinGW-W64 x86_64-msvcrt-posix-seh, built by Brecht Sanders, r3) 14.2.0",
     "google_benchmark": {
-      "date": "2026-07-29T23:49:28-00:00",
-      "executable": "./.tmp/claim-evidence-final-run/benchmark/qmc_google_benchmark.exe",
+      "date": "2026-08-01T00:48:29-00:00",
+      "executable": "./.tmp/claim-evidence/benchmark/qmc_google_benchmark.exe",
       "num_cpus": 20,
       "mhz_per_cpu": 2995,
       "caches": [
@@ -52,30 +52,37 @@
     "implementation_top": "arty_a7_option_pricer_top",
     "rtl_core_top": "top_mc_option_pricer_multi_stored",
     "lanes": 4,
-    "configured_clock_hz": 100000000.0,
-    "configured_clock_period_ns": 10.0,
-    "routed_clock_hz": 100000000.0,
-    "routed_clock_period_ns": 10.0,
-    "latency_clock_hz": 100000000.0,
-    "latency_clock_source": "routed sys_clk Clock Summary",
+    "configured_clock_hz": 105263158.0,
+    "configured_clock_period_ns": 9.4999999905,
+    "routed_clock_hz": 105263157.89473684,
+    "routed_clock_period_ns": 9.5,
+    "latency_clock_hz": 105263157.89473684,
+    "latency_clock_source": "routed core_clk_unbuffered Clock Summary",
     "exercise_mode": "multi",
     "option_type": "put",
     "collection_modes": {
-      "cpp": "run",
-      "xsim": "run",
-      "benchmark": "run",
+      "cpp": "parse",
+      "xsim": "parse",
+      "benchmark": "parse",
       "vivado": "parse"
     },
-    "parsed_source_fingerprint": "8f577a64e569a4296cb2c375e4a0fe1da4cb59d3801b2ed0c45be42fc62b6802",
-    "parsed_git_commit": "c031f4b24fc783fc0dc30e0185cfc2e6ae3850e6",
+    "parsed_source_fingerprint": "7d050a1c4471743fb8091f2778203d3d13b216d5d2666a8fd089bf985b1465c2",
+    "parsed_git_commit": "5a4e661547d494f83ea9ee519d54f797e735fa7e",
     "source_snapshot": {
-      "combined_sha256": "8f577a64e569a4296cb2c375e4a0fe1da4cb59d3801b2ed0c45be42fc62b6802",
+      "combined_sha256": "7d050a1c4471743fb8091f2778203d3d13b216d5d2666a8fd089bf985b1465c2",
       "rtl": {
-        "sha256": "6c39e59fb4720025ef6beab045ec96fa69e1fe696188b8a748b3017448c23a7b",
+        "sha256": "379d92045590ffe1a80c8b14b1a992d0f4cb467a2a07f8470f35ebc8fe0f266a",
         "file_count": 38,
-        "latest_source_mtime_ns": 1785365441905559300,
-        "latest_source_mtime_utc": "2026-07-29T22:50:41.905559+00:00",
+        "latest_source_mtime_ns": 1785537962351113900,
+        "latest_source_mtime_utc": "2026-07-31T22:46:02.351114+00:00",
         "latest_source_path": "src/top/top_option_pricer_multi_stored.sv"
+      },
+      "simulation": {
+        "sha256": "a72585d2644a3744d1bebf7ddaa033a2ee0f55ed0a9bbb8e6e9aeb63c223c23c",
+        "file_count": 15,
+        "latest_source_mtime_ns": 1785506731453784300,
+        "latest_source_mtime_utc": "2026-07-31T14:05:31.453784+00:00",
+        "latest_source_path": "src/sim/fxDiv_core_stub.sv"
       },
       "cpp": {
         "sha256": "9a77f03d5943de663b1ce8472bdfae3e6d5e3e37596234b39875764c0a39cdad",
@@ -88,79 +95,36 @@
     "artifact_fingerprints": {
       "collector": {
         "path": "scripts/reproduce_claims.py",
-        "sha256": "7f735c4cfec2a2f54d132b06e041584799b461d71a4be6bb8ed9de2c672c0143",
-        "size_bytes": 60519,
-        "mtime_ns": 1785368865822319700,
-        "mtime_utc": "2026-07-29T23:47:45.822320+00:00"
+        "sha256": "20516cdba1fe7fd43ebbc989dbb4c3da9f5311452296a46d2c63140a55e40f19",
+        "size_bytes": 69307,
+        "mtime_ns": 1785545390720208500,
+        "mtime_utc": "2026-08-01T00:49:50.720208+00:00"
       },
       "timing_report": {
-        "path": "vivado_build/arty_a7_100_multi_lanes4_10ns/timing_post_route.rpt",
-        "sha256": "7c5de0595cdb2e4895190bd4c53568ed10ab10776716fb0d3bcc07ac9db9fc62",
-        "size_bytes": 282760,
-        "mtime_ns": 1785366627197814000,
-        "mtime_utc": "2026-07-29T23:10:27.197814+00:00"
+        "path": "vivado_build/arty_a7_100_multi_lanes4_9p5ns_rowopt/timing_post_route.rpt",
+        "sha256": "99a65f68aedcb95081f1b3d75844f6d422c4db3b15e0d79ac775c9bb352b623c",
+        "size_bytes": 313483,
+        "mtime_ns": 1785543978814084500,
+        "mtime_utc": "2026-08-01T00:26:18.814085+00:00"
       },
       "utilization_report": {
-        "path": "vivado_build/arty_a7_100_multi_lanes4_10ns/utilization.rpt",
-        "sha256": "061d512d634cf0d8f3cce3eb49e5802de0ed9be406d82bced7eb8574c779b810",
-        "size_bytes": 11740,
-        "mtime_ns": 1785366627806373800,
-        "mtime_utc": "2026-07-29T23:10:27.806374+00:00"
+        "path": "vivado_build/arty_a7_100_multi_lanes4_9p5ns_rowopt/utilization.rpt",
+        "sha256": "c8efc239c8b5603974a97b121eb3808bacf70ed5aa673eee3ca2542b70214500",
+        "size_bytes": 11859,
+        "mtime_ns": 1785543979543858500,
+        "mtime_utc": "2026-08-01T00:26:19.543859+00:00"
       },
       "google_benchmark": {
-        "path": ".tmp/claim-evidence-final-run/raw/google_benchmark.json",
-        "sha256": "e3422f164db36775a2bb1c6ade8759e41a78be587e01547325f50f5107f859bf",
-        "size_bytes": 14613,
-        "mtime_ns": 1785368983168195500,
-        "mtime_utc": "2026-07-29T23:49:43.168195+00:00"
+        "path": ".tmp/claim-evidence-corrected-final/raw/google_benchmark.json",
+        "sha256": "97a5d242747436fad6059f0047faf9bc55db6fdb09277d39ad1a89e49230016a",
+        "size_bytes": 14603,
+        "mtime_ns": 1785545321591079900,
+        "mtime_utc": "2026-08-01T00:48:41.591080+00:00"
       }
     },
     "vivado_run": null,
-    "cpp_build_command": [
-      "g++",
-      "-std=c++17",
-      "-O3",
-      "-DNDEBUG",
-      "main.cpp",
-      "pricing.cpp",
-      "linalg.cpp",
-      "rtl_math.cpp",
-      "sobol_wrapper.cpp",
-      "utils.cpp",
-      "-o",
-      "./.tmp/claim-evidence-final-run/cpp/fixed_baseline.exe"
-    ],
-    "benchmark_commands": [
-      [
-        "cmake",
-        "-G",
-        "MinGW Makefiles",
-        "-S",
-        "./baseline/cpp_fixed",
-        "-B",
-        "./.tmp/claim-evidence-final-run/benchmark",
-        "-DCMAKE_BUILD_TYPE=Release",
-        "-DCMAKE_CXX_COMPILER=~/mingw64/bin/g++.EXE",
-        "-DQMC_BENCHMARK_NATIVE_ARCH=ON",
-        "-DBENCHMARK_ENABLE_TESTING=OFF"
-      ],
-      [
-        "cmake",
-        "--build",
-        "./.tmp/claim-evidence-final-run/benchmark",
-        "--config",
-        "Release"
-      ],
-      [
-        "./.tmp/claim-evidence-final-run/benchmark/qmc_google_benchmark.exe",
-        "--benchmark_filter=BM_(EndToEnd|PricingCore|HotKernel)MultiPutMatrix/1024/(4|12)$",
-        "--benchmark_repetitions=15",
-        "--benchmark_report_aggregates_only=true",
-        "--benchmark_min_time=0.1s",
-        "--benchmark_out=./.tmp/claim-evidence-final-run/raw/google_benchmark.json",
-        "--benchmark_out_format=json"
-      ]
-    ],
+    "cpp_build_command": null,
+    "benchmark_commands": null,
     "skipped_sources": []
   },
   "timing_boundary_definitions": {
@@ -171,33 +135,36 @@
   },
   "routed_timing": {
     "tool": "Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025",
-    "report_date": "Wed Jul 29 18:10:27 2026",
+    "report_date": "Fri Jul 31 19:26:18 2026",
     "implementation_top": "arty_a7_option_pricer_top",
     "device": "7a100t-csg324",
     "design_state": "Routed",
-    "wns_ns": 0.139,
+    "wns_ns": 0.121,
     "tns_ns": 0.0,
     "setup_failing_endpoints": 0,
-    "clock_name": "sys_clk",
-    "clock_period_ns": 10.0,
-    "clock_frequency_mhz": 100.0,
+    "whs_ns": 0.008,
+    "ths_ns": 0.0,
+    "hold_failing_endpoints": 0,
+    "clock_name": "core_clk_unbuffered",
+    "clock_period_ns": 9.5,
+    "clock_frequency_mhz": 105.263,
     "all_constraints_met": true
   },
   "routed_utilization": {
     "tool": "Vivado v.2025.1 (win64) Build 6140274 Thu May 22 00:12:29 MDT 2025",
-    "report_date": "Wed Jul 29 18:10:27 2026",
+    "report_date": "Fri Jul 31 19:26:19 2026",
     "implementation_top": "arty_a7_option_pricer_top",
     "device": "xc7a100tcsg324-1",
     "design_state": "Routed",
     "slice_luts": {
-      "used": 45955,
+      "used": 44768,
       "available": 63400,
-      "percent": 72.48
+      "percent": 70.61
     },
     "slice_registers": {
-      "used": 46905,
+      "used": 49241,
       "available": 126800,
-      "percent": 36.99
+      "percent": 38.83
     },
     "block_ram_tiles": {
       "used": 66,
@@ -218,7 +185,7 @@
         "paths": 1024,
         "steps": 4,
         "expected_price_raw": 391343,
-        "expected_core_cycles": 72394,
+        "expected_core_cycles": 91302,
         "S0": 100.0,
         "K": 100.0,
         "r": 0.05,
@@ -229,79 +196,44 @@
       "cpp_rtl_exact": {
         "price_raw_q16_16": 391343,
         "price": 5.97142,
-        "process_elapsed_seconds": 0.004328,
+        "process_elapsed_seconds": 0.0058933,
         "exercise_mode_label": "FPGA_STYLE_MULTI_EXERCISE",
         "option_type": "put",
-        "command": [
-          "./.tmp/claim-evidence-final-run/cpp/fixed_baseline.exe",
-          "--paths",
-          "1024",
-          "--steps",
-          "4",
-          "--S0",
-          "100.0",
-          "--K",
-          "100.0",
-          "--r",
-          "0.05",
-          "--sigma",
-          "0.2",
-          "--T",
-          "1.0",
-          "--option-type",
-          "1",
-          "--exercise-mode",
-          "multi",
-          "--direction-file",
-          "./src/gen/direction.mem",
-          "--lut-dir",
-          "./src/gen"
-        ],
-        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x4_multi_cpp.txt",
+        "source": "./.tmp/claim-evidence-corrected-final/raw/put_1024x4_multi_cpp.txt",
         "artifact_fingerprint": {
-          "path": ".tmp/claim-evidence-final-run/raw/put_1024x4_multi_cpp.txt",
-          "sha256": "6aa5e1bcb766bad8e6de1b5257ca5f7d36b6f7ec059dc273e9842098306ed429",
-          "size_bytes": 174,
-          "mtime_ns": 1785368924834212200,
-          "mtime_utc": "2026-07-29T23:48:44.834212+00:00"
+          "path": ".tmp/claim-evidence-corrected-final/raw/put_1024x4_multi_cpp.txt",
+          "sha256": "017197e2cb19b47af256027b9ee8e72640854dfe760c3d3706fa63fd3b45b491",
+          "size_bytes": 175,
+          "mtime_ns": 1785544761250650800,
+          "mtime_utc": "2026-08-01T00:39:21.250651+00:00"
         }
       },
       "rtl_xsim_four_lane": {
         "paths": 1024,
         "steps": 4,
-        "core_cycles": 72394,
+        "core_cycles": 91302,
         "price_raw_q16_16": 391343,
         "result_marker": 2882338817,
-        "evidence_line": "[VIRTUAL_A7] paths=1024 steps=4 core_cycles=72394 price_raw=0x0005f8af marker=0xabcd0001",
+        "evidence_line": "[VIRTUAL_A7] paths=1024 steps=4 core_cycles=91302 price_raw=0x0005f8af marker=0xabcd0001",
         "xsim_version": "2025.1",
-        "price": 5.9714202880859375,
-        "command": [
-          "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
-          "-NoProfile",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-File",
-          "./scripts/run_tb_top_uart_safe.ps1",
-          "-ComputeMode",
-          "-MultiExercise",
-          "-NumLanes",
-          "4",
-          "-TestPlusargs",
-          "paths=1024,steps=4,S0=6553600,K=6553600,r=3277,sigma=13107,T=65536,opt=1,expected_price=391343",
-          "-XsimTimeoutSeconds",
-          "3600",
-          "-NoCleanup"
-        ],
-        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x4_multi_xsim.txt",
-        "artifact_fingerprint": {
-          "path": ".tmp/claim-evidence-final-run/raw/put_1024x4_multi_xsim.txt",
-          "sha256": "3af859266cc90a76741af443b72694edb9cd0d73c12218ecdfcbd42d2ae408ef",
-          "size_bytes": 11673,
-          "mtime_ns": 1785368946695955800,
-          "mtime_utc": "2026-07-29T23:49:06.695956+00:00"
+        "divider_binding": {
+          "model": "generated_vhdl",
+          "work_library": "qmc_work_vendor",
+          "divider_library": "qmc_fxdiv_vendor",
+          "sha256": "1af6172a9293bf84e3e17cce880a8b1838163dfb53e1b1e5dfd387cfac7a5069"
         },
-        "core_latency_seconds": 0.00072394,
-        "latency_clock_source": "routed sys_clk Clock Summary"
+        "divider_model": "generated_div_gen_behavioral_vhdl",
+        "price": 5.9714202880859375,
+        "source": "./.tmp/claim-evidence-corrected-final/raw/put_1024x4_multi_xsim.txt",
+        "artifact_fingerprint": {
+          "path": ".tmp/claim-evidence-corrected-final/raw/put_1024x4_multi_xsim.txt",
+          "sha256": "f030593a8e75cb15a5606a15e1b5c4a5322d1647d1a7c90d191d9b3dd4f5ccff",
+          "size_bytes": 29417,
+          "mtime_ns": 1785545023478452600,
+          "mtime_utc": "2026-08-01T00:43:43.478453+00:00"
+        },
+        "core_latency_seconds": 0.000867369,
+        "latency_clock_source": "routed core_clk_unbuffered Clock Summary"
       },
       "cpp_rtl_parity": {
         "raw_lsb_delta": 0,
@@ -310,30 +242,30 @@
       "cpu_boundaries": {
         "end_to_end": {
           "benchmark": "BM_EndToEndMultiPutMatrix/1024/4",
-          "mean_real_seconds": 0.0009673007867563184,
-          "mean_cpu_seconds": 0.0009640269151138716,
+          "mean_real_seconds": 0.0008898804555733845,
+          "mean_cpu_seconds": 0.0008863871635610767,
           "repetitions": 15,
           "iterations": 15,
           "label": "Q16.16 price=391343",
-          "cpu_mean_real_over_fpga_core_ratio": 1.3361615420564115
+          "cpu_mean_real_over_fpga_core_ratio": 1.0259537239322416
         },
         "pricing_core": {
           "benchmark": "BM_PricingCoreMultiPutMatrix/1024/4",
-          "mean_real_seconds": 0.0008445575907280846,
-          "mean_cpu_seconds": 0.0008302392739273927,
+          "mean_real_seconds": 0.0005511703841270512,
+          "mean_cpu_seconds": 0.0005498760842627014,
           "repetitions": 15,
           "iterations": 15,
           "label": "Q16.16 price=391343",
-          "cpu_mean_real_over_fpga_core_ratio": 1.166612689902595
+          "cpu_mean_real_over_fpga_core_ratio": 0.6354508682314576
         },
         "hot_kernel": {
           "benchmark": "BM_HotKernelMultiPutMatrix/1024/4",
-          "mean_real_seconds": 0.0007252422718979849,
-          "mean_cpu_seconds": 0.000704143389199255,
+          "mean_real_seconds": 0.0004853924414778384,
+          "mean_cpu_seconds": 0.00048076923076923074,
           "repetitions": 15,
           "iterations": 15,
           "label": "Q16.16 price=391343",
-          "cpu_mean_real_over_fpga_core_ratio": 1.0017988671685292
+          "cpu_mean_real_over_fpga_core_ratio": 0.5596146985629397
         }
       },
       "financial_reference": {
@@ -355,7 +287,7 @@
         "paths": 1024,
         "steps": 12,
         "expected_price_raw": 428757,
-        "expected_core_cycles": 236362,
+        "expected_core_cycles": 293790,
         "S0": 100.0,
         "K": 100.0,
         "r": 0.05,
@@ -366,79 +298,44 @@
       "cpp_rtl_exact": {
         "price_raw_q16_16": 428757,
         "price": 6.54231,
-        "process_elapsed_seconds": 0.0045346,
+        "process_elapsed_seconds": 0.0046488,
         "exercise_mode_label": "FPGA_STYLE_MULTI_EXERCISE",
         "option_type": "put",
-        "command": [
-          "./.tmp/claim-evidence-final-run/cpp/fixed_baseline.exe",
-          "--paths",
-          "1024",
-          "--steps",
-          "12",
-          "--S0",
-          "100.0",
-          "--K",
-          "100.0",
-          "--r",
-          "0.05",
-          "--sigma",
-          "0.2",
-          "--T",
-          "1.0",
-          "--option-type",
-          "1",
-          "--exercise-mode",
-          "multi",
-          "--direction-file",
-          "./src/gen/direction.mem",
-          "--lut-dir",
-          "./src/gen"
-        ],
-        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x12_multi_cpp.txt",
+        "source": "./.tmp/claim-evidence-corrected-final/raw/put_1024x12_multi_cpp.txt",
         "artifact_fingerprint": {
-          "path": ".tmp/claim-evidence-final-run/raw/put_1024x12_multi_cpp.txt",
-          "sha256": "08fd5b1a3831957029d0e4acb8dd4df900c7808db61688200819c3102b55738e",
+          "path": ".tmp/claim-evidence-corrected-final/raw/put_1024x12_multi_cpp.txt",
+          "sha256": "2525713e6bc8c58925b6c12f04a4d97846cdd60eb3fbcae973e0f5f0e67384bf",
           "size_bytes": 175,
-          "mtime_ns": 1785368924873851400,
-          "mtime_utc": "2026-07-29T23:48:44.873851+00:00"
+          "mtime_ns": 1785544761287568400,
+          "mtime_utc": "2026-08-01T00:39:21.287568+00:00"
         }
       },
       "rtl_xsim_four_lane": {
         "paths": 1024,
         "steps": 12,
-        "core_cycles": 236362,
+        "core_cycles": 293790,
         "price_raw_q16_16": 428757,
         "result_marker": 2882338817,
-        "evidence_line": "[VIRTUAL_A7] paths=1024 steps=12 core_cycles=236362 price_raw=0x00068ad5 marker=0xabcd0001",
+        "evidence_line": "[VIRTUAL_A7] paths=1024 steps=12 core_cycles=293790 price_raw=0x00068ad5 marker=0xabcd0001",
         "xsim_version": "2025.1",
-        "price": 6.5423126220703125,
-        "command": [
-          "C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe",
-          "-NoProfile",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-File",
-          "./scripts/run_tb_top_uart_safe.ps1",
-          "-ComputeMode",
-          "-MultiExercise",
-          "-NumLanes",
-          "4",
-          "-TestPlusargs",
-          "paths=1024,steps=12,S0=6553600,K=6553600,r=3277,sigma=13107,T=65536,opt=1,expected_price=428757",
-          "-XsimTimeoutSeconds",
-          "3600",
-          "-SkipCompile"
-        ],
-        "source": "./.tmp/claim-evidence-final-run/raw/put_1024x12_multi_xsim.txt",
-        "artifact_fingerprint": {
-          "path": ".tmp/claim-evidence-final-run/raw/put_1024x12_multi_xsim.txt",
-          "sha256": "1ba3ec6b3ffc6d3283708b1c5511f82ab88819cf492c818d8b878aeaffdff285",
-          "size_bytes": 2003,
-          "mtime_ns": 1785368960039136000,
-          "mtime_utc": "2026-07-29T23:49:20.039136+00:00"
+        "divider_binding": {
+          "model": "generated_vhdl",
+          "work_library": "qmc_work_vendor",
+          "divider_library": "qmc_fxdiv_vendor",
+          "sha256": "1af6172a9293bf84e3e17cce880a8b1838163dfb53e1b1e5dfd387cfac7a5069"
         },
-        "core_latency_seconds": 0.00236362,
-        "latency_clock_source": "routed sys_clk Clock Summary"
+        "divider_model": "generated_div_gen_behavioral_vhdl",
+        "price": 6.5423126220703125,
+        "source": "./.tmp/claim-evidence-corrected-final/raw/put_1024x12_multi_xsim.txt",
+        "artifact_fingerprint": {
+          "path": ".tmp/claim-evidence-corrected-final/raw/put_1024x12_multi_xsim.txt",
+          "sha256": "949d21ac0ed270fbfbca7efd4c4576bd987ecb1d6b26fc41400aff4d908b7d78",
+          "size_bytes": 2418,
+          "mtime_ns": 1785545247237200900,
+          "mtime_utc": "2026-08-01T00:47:27.237201+00:00"
+        },
+        "core_latency_seconds": 0.002791005,
+        "latency_clock_source": "routed core_clk_unbuffered Clock Summary"
       },
       "cpp_rtl_parity": {
         "raw_lsb_delta": 0,
@@ -447,30 +344,30 @@
       "cpu_boundaries": {
         "end_to_end": {
           "benchmark": "BM_EndToEndMultiPutMatrix/1024/12",
-          "mean_real_seconds": 0.0020769060740281862,
-          "mean_cpu_seconds": 0.001990740740740741,
+          "mean_real_seconds": 0.0016116807407147628,
+          "mean_cpu_seconds": 0.001597222222222222,
           "repetitions": 15,
           "iterations": 15,
           "label": "Q16.16 price=428757",
-          "cpu_mean_real_over_fpga_core_ratio": 0.8786971146073338
+          "cpu_mean_real_over_fpga_core_ratio": 0.577455339820159
         },
         "pricing_core": {
           "benchmark": "BM_PricingCoreMultiPutMatrix/1024/12",
-          "mean_real_seconds": 0.0018417926748578318,
-          "mean_cpu_seconds": 0.0018004115226337447,
+          "mean_real_seconds": 0.0012081341999582947,
+          "mean_cpu_seconds": 0.00121875,
           "repetitions": 15,
           "iterations": 15,
           "label": "Q16.16 price=428757",
-          "cpu_mean_real_over_fpga_core_ratio": 0.7792253724616613
+          "cpu_mean_real_over_fpga_core_ratio": 0.4328670854972652
         },
         "hot_kernel": {
           "benchmark": "BM_HotKernelMultiPutMatrix/1024/12",
-          "mean_real_seconds": 0.0018705283127315037,
-          "mean_cpu_seconds": 0.0018389917695473248,
+          "mean_real_seconds": 0.001187449778102476,
+          "mean_cpu_seconds": 0.0011805555555555556,
           "repetitions": 15,
           "iterations": 15,
           "label": "Q16.16 price=428757",
-          "cpu_mean_real_over_fpga_core_ratio": 0.7913828418830031
+          "cpu_mean_real_over_fpga_core_ratio": 0.4254559838131698
         }
       },
       "financial_reference": null

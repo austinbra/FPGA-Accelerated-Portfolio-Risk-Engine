@@ -31,7 +31,9 @@ module top_mc_option_pricer_multi_stored #(
     localparam int W          = fpga_cfg_pkg::FP_WIDTH;
     localparam int QF         = fpga_cfg_pkg::FP_QFRAC;
     localparam int ROWS_MAX   = (MAX_PATHS + NUM_LANES - 1) / NUM_LANES;
-    localparam int ROW_AW     = (ROWS_MAX <= 2) ? 1 : $clog2(ROWS_MAX);
+    localparam int ROW_AW      = (ROWS_MAX <= 2) ? 1 : $clog2(ROWS_MAX);
+    localparam int ROW_COUNT_W = (ROWS_MAX <= 1) ? 1 : $clog2(ROWS_MAX + 1);
+    localparam int PATH_COUNT_W = (MAX_PATHS <= 1) ? 1 : $clog2(MAX_PATHS + 1);
     localparam int SPOT_DEPTH = ROWS_MAX * MAX_STEPS;
     localparam int SPOT_AW    = (SPOT_DEPTH <= 2) ? 1 : $clog2(SPOT_DEPTH);
     localparam signed [W-1:0] ONE_Q = 32'sd1 <<< QF;
@@ -239,9 +241,9 @@ module top_mc_option_pricer_multi_stored #(
     logic lane_gbm_rout[0:NUM_LANES-1];
     logic lane_gbm_vout[0:NUM_LANES-1];
     logic signed [W-1:0] lane_s_next[0:NUM_LANES-1];
-    logic [15:0] gen_path_base;
-    logic [15:0] gen_issue_row;
-    logic [15:0] gen_output_row;
+    logic [PATH_COUNT_W-1:0] gen_path_base;
+    logic [ROW_COUNT_W-1:0] gen_issue_row;
+    logic [ROW_COUNT_W-1:0] gen_output_row;
     logic [7:0] gen_step;
     logic [SPOT_AW-1:0] gen_issue_spot_addr;
     logic [SPOT_AW-1:0] gen_output_spot_addr;
@@ -411,8 +413,8 @@ module top_mc_option_pricer_multi_stored #(
     } state_t;
     state_t state;
 
-    logic [15:0] rows_active;
-    logic [15:0] scan_row;
+    logic [ROW_COUNT_W-1:0] rows_active;
+    logic [ROW_COUNT_W-1:0] scan_row;
     logic [7:0] exercise_step;
     logic [NUM_LANES-1:0] feature_pending;
     logic [3:0] sub_phase;
@@ -443,10 +445,9 @@ module top_mc_option_pricer_multi_stored #(
     logic final_div_ge;
     wire [63:0] final_div_den = (lat_N == 0) ? 64'd1 : {48'd0, lat_N};
     logic signed [W-1:0] final_average;
-    logic signed [W-1:0] valuation_intrinsic;
+    logic signed [W-1:0] valuation_intrinsic_reg;
 
     assign final_average = final_avg_saturate(final_div_quotient, final_div_sign);
-    assign valuation_intrinsic = payoff_value(lat_S0, lat_K, lat_option_type);
 
     wire [NUM_LANES-1:0] feature_done_vec;
     for (genvar fd = 0; fd < NUM_LANES; fd++)
@@ -510,6 +511,7 @@ module top_mc_option_pricer_multi_stored #(
             final_dividend_abs<='0; final_div_remainder<='0;
             final_div_quotient<='0; final_div_bit<='0; final_div_sign<=1'b0;
             final_div_trial_reg<='0; final_div_ge<=1'b0;
+            valuation_intrinsic_reg<='0;
             for (int rr=0; rr<12; rr++) reg_mat[rr] <= '0;
             for (int bb=0; bb<3; bb++) beta_reg[bb] <= '0;
             for (int ln=0; ln<NUM_LANES; ln++) begin
@@ -545,6 +547,7 @@ module top_mc_option_pricer_multi_stored #(
             end
 
             ST_INIT_DT: begin
+                valuation_intrinsic_reg <= payoff_value(lat_S0, lat_K, lat_option_type);
                 if (core_timeout) state <= ST_DONE;
                 else if (param_paths > MAX_PATHS || param_steps > MAX_STEPS ||
                          param_paths == 0 || param_steps < 1 ||
@@ -916,8 +919,8 @@ module top_mc_option_pricer_multi_stored #(
                         sub_phase<=1;
                     end
                 end else begin
-                    result_price <= (final_average >= valuation_intrinsic)
-                        ? final_average : valuation_intrinsic;
+                    result_price <= (final_average >= valuation_intrinsic_reg)
+                        ? final_average : valuation_intrinsic_reg;
                     sub_phase<=0; state<=ST_DONE;
                 end
             end
