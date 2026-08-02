@@ -1,11 +1,16 @@
 # Fixed-Point C++ Pricing Mirror
 
-This directory contains the C++17 executable specification for the FPGA pricing
-kernel. It serves three roles:
+This directory contains the C++17 executable specification for the implemented
+FPGA pricing kernel. It serves three current roles:
 
 - bit-exact raw-price oracle for RTL and physical hardware;
-- CPU implementation for scenario/Greek workflow development;
-- named CPU timing boundaries through Google Benchmark.
+- host implementation used by the existing scenario/Greek experiments;
+- source of the already recorded, explicitly named Google Benchmark boundaries.
+
+The future roadmap does not require this mirror to become an optimized CPU
+competitor or to reproduce every planned feature. New products should begin
+with readable double-precision C++ references that use normal CPU floating-point
+arithmetic; extend the fixed-point mirror when an RTL parity contract is needed.
 
 The C++ mirror did not use the faulty RTL divider output packet. Its canonical
 raw prices remain 391,343 for 1,024 x 4 and 428,757 for 1,024 x 12. Corrected
@@ -200,12 +205,20 @@ provenance.
 Sobol index 1 for common random numbers, then computes central-difference delta,
 gamma, and vega.
 
-The recommended next C++ task is to extract the pricing request/result contract
-into a reusable library while keeping this CLI as a thin adapter. That gives
-portfolio Python code a stable, testable CPU backend and develops useful C++ API
-and ownership skills before adding new RTL.
+Common random numbers reduce noise in a difference but still rerun the complete
+pricing job. The FPGA roadmap instead investigates replaying normal increments
+and sharing compatible path populations across scenarios, strikes, and payoffs.
+
+For a new option or model, first write a small readable double-precision C++
+reference and establish convergence. Define the FPGA numerical contract next.
+Extend this bit-exact mirror only when the corresponding hardware needs a raw
+parity oracle.
 
 ## Comparison Rules
+
+These rules preserve the meaning of the existing measurements and apply to any
+explicit future timing experiment. The development roadmap does not require a
+CPU-versus-FPGA benchmark for every feature.
 
 When comparing CPU and FPGA:
 

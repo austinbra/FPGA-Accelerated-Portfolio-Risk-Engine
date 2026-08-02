@@ -5,8 +5,9 @@
 This repository is a corrected and extended fork of an FPGA-accelerated option
 pricer. The current deliverable is a deterministic, fixed-point pricing kernel
 with C++ and SystemVerilog implementations, a UART control plane, and validated
-Artix-7 and Spartan-7 implementation points. Its natural next use is repeated
-contract revaluation for portfolio scenarios and finite-difference Greeks.
+Artix-7 and Spartan-7 implementation points. The revised research target is a
+queued, multi-context FPGA fabric that shares forward stochastic computation,
+bypasses unnecessary stages, and targets path-dependent early exercise.
 
 The July 2026 validation pass materially changed the hardware evidence. A
 misread Xilinx divider output packet and an unrealistically fast simulation
@@ -17,13 +18,14 @@ study were not invalidated. This report describes only the corrected state.
 ## Project Question
 
 The engineering question is not simply, "Can an FPGA price an option?" A tree
-already prices a single low-dimensional vanilla American option efficiently.
+or low-dimensional PDE already prices a vanilla early-exercise option
+efficiently, and an analytic formula is stronger for many European vanillas.
 The more useful question is:
 
 > Can a numerically sensitive pricing kernel be made deterministic and
-> verifiable across Python orchestration, optimized C++, fixed-point RTL,
-> routed FPGA hardware, and measured host transport, then reused many times for
-> scenarios and Greeks?
+> verifiable across high-precision references, fixed-point RTL, routed FPGA
+> hardware, and measured host transport, then extended into a saturation-safe
+> fabric that avoids redundant scenario work and supports path-dependent state?
 
 That framing gives the project a defensible application boundary and exposes
 skills that matter in quantitative development, FPGA design, and performance
@@ -57,7 +59,9 @@ wider accumulator or divider operand is required.
 The present bump/revalue layer submits base, spot-up, spot-down,
 volatility-up, and volatility-down requests with the same Sobol sequence. It
 then calculates finite-difference delta, gamma, and vega. This is the seed of a
-risk engine, but it is not yet a portfolio service.
+risk engine, but it currently reruns the complete pricing job for every bump.
+Common random numbers reduce variance; they neither eliminate duplicated work
+nor guarantee an accurate Greek.
 
 ## Hardware/Software Partition
 
@@ -77,14 +81,15 @@ workflows transparent and keep assumptions visible.
 
 ### C++
 
-C++ is the executable specification and CPU comparison target. It provides:
+C++ provides two validation roles:
 
-- a bit-exact FPGA-style pricing path;
-- a future reusable pricing-library API;
-- Google Benchmark timing boundaries;
-- fast tests for scenario and Greek orchestration;
-- a practical place to learn ownership, interfaces, testing, and performance
-  without waiting for FPGA implementation.
+- the existing fixed-point path is a bit-exact oracle for implemented RTL;
+- new readable double-precision models are quick financial references that use
+  the CPU's floating-point strengths.
+
+The recorded Google Benchmark results remain useful historical boundary
+evidence. Future phases do not require an optimized CPU competitor or an exact
+fixed-point C++ replica of every new FPGA feature.
 
 ### SystemVerilog
 
@@ -96,11 +101,16 @@ an orchestration-layer change.
 
 ### Recommended balance
 
-The extension should use all three languages. A SystemVerilog-only portfolio
-engine would spend scarce time rebuilding parsing, queues, and reporting in the
-least ergonomic layer. A Python/C++-only extension would abandon the core FPGA
-learning. The highest-value path keeps the pricing accelerator in RTL, extracts
-a clean C++ library, and builds portfolio/scenario control in Python.
+The FPGA is the design target. SystemVerilog should own stable repeated work:
+request classification, queues, path/state generation, payoff processing,
+optional LSM stages, result ordering, and telemetry. C++ should provide fast
+high-precision experiments and bit-exact checks where needed. Python should own
+schemas, validation orchestration, experiment matrices, and reports rather than
+the latency-critical pricing path.
+
+This partition also prepares for a possible ASIC: isolate a portable pricing
+and scheduler core from Xilinx divider, BRAM, MMCM, UART, and board-shell
+assumptions, but do not freeze the design while the method is still changing.
 
 ## Divider Defect and Correction
 
@@ -286,53 +296,56 @@ The following remain independently meaningful:
 - UART framing and host error handling;
 - qualitative architecture and software-engineering work.
 
-## Extension Plan
+## Revised Development Plan
 
-### Phase 1: clean library boundary
+The earlier software-first portfolio sequence has been replaced by numerical
+and architectural gates. The complete acceptance criteria are in
+[`docs/roadmap.md`](docs/roadmap.md).
 
-Extract the pricing API from the C++ executable into a reusable library. Define
-an immutable request, result, diagnostics, and explicit error status. Keep the
-existing CLI as a thin adapter. This is high-value C++ practice and gives Python
-and tests one stable interface.
+1. **Numerical foundation.** Preserve sufficient-statistic range through common
+   normalization or a wider solver; add scrambled Sobol replicas, uncertainty
+   reporting, dimension reduction, and held-out/cross-fit LSM valuation.
+2. **Shared scenario work.** Replay normal increments, share compatible paths
+   across strikes, payoffs, and bumps, and require independent Greek and
+   bump-size validation instead of five unquestioned full reruns.
+3. **Configurable European modes.** Add an analytic/interpolation vanilla lane,
+   arithmetic-Asian running-average reduction, and a geometric-Asian reference;
+   bypass stored paths and regression whenever the contract permits.
+4. **Bermudan Asian continuation.** Track `(S,A)`, begin with normalized basis
+   `[1,S,A,S^2,S*A,A^2]`, and validate against a two-state PDE and a readable
+   double-precision LSM implementation.
+5. **Queued multi-context FPGA fabric.** Add per-class FIFOs, job IDs, result
+   ordering, backpressure, multiple measured memory contexts, and telemetry;
+   protect short jobs from LSM head-of-line blocking.
+6. **Transport and device scaling.** Choose AXI, PCIe, or Ethernet from measured
+   boundaries, use a larger FPGA only for demonstrated resource bottlenecks,
+   and add stochastic dimensions one at a time with validated sparse bases.
+7. **ASIC-readiness decision.** Separate the portable computation/scheduler
+   core from Xilinx arithmetic, memory, clocking, UART, and board assumptions;
+   harden only after the workload, method, precision, and utilization stabilize.
 
-### Phase 2: Python portfolio and scenarios
+Forward samples may approach a small initiation interval, but a complete LSM
+contract is not a one-cycle pipeline item. Each exercise date requires
+population statistics, a common regression solve, coefficient broadcast, and
+backward cashflow updates. Multiple contexts can overlap these stages where
+memory permits; accepting request headers rapidly is not the same as completing
+one Bermudan valuation per clock.
 
-Create typed CSV/JSON schemas, validate contracts, assign deterministic IDs,
-generate scenario shocks, and aggregate values. Start entirely on CPU so data
-semantics can be learned without hardware debugging.
-
-### Phase 3: deterministic Greeks
-
-Reuse Sobol indices across base and bumped requests. Report bump sizes, raw
-prices, finite-difference formulas, estimator noise, and CPU/FPGA parity per
-job. Compare a subset with analytic European Greeks where applicable.
-
-### Phase 4: batch scheduler
-
-Keep one CPU worker pool or UART session open, submit many independent jobs,
-retain ordering and job IDs, and separate queue, transport, and compute time.
-Measure throughput and latency distributions at several batch sizes.
-
-### Phase 5: hardware interface evolution
-
-Only after the workload is understood, decide whether UART should become AXI,
-PCIe, or Ethernet. Add request/result FIFOs and telemetry before changing the
-pricing mathematics. This makes the performance case workload-driven.
-
-### Phase 6: new financial products
-
-Add one feature at a time with its own independent reference. Dividend yield is
-a smaller extension; Asian and basket options require different state and
-verification; correlated multi-asset paths materially change memory and math.
+C++ remains a quick high-accuracy reference and, for existing RTL, a bit-exact
+oracle. It is not a required future CPU competitor.
 
 ## Resume-Relevant Skills
 
 A strong final presentation should demonstrate:
 
 - numerical-method selection and limitations;
-- fixed-point range and truncation decisions;
+- option taxonomy and the distinction between inputs, path state, and
+  stochastic dimensions;
+- fixed-point range, normalization, saturation, and truncation decisions;
+- randomized-QMC uncertainty, regression bias, and Greek stability;
 - bit-exact C++/RTL co-verification;
 - ready/valid protocol debugging across vendor IP;
+- multi-context scheduling and the limits of LSM job pipelining;
 - FPGA clocking, CDC/reset discipline, synthesis, placement, routing, and STA;
 - parameterized build automation and artifact provenance;
 - benchmark-boundary design rather than headline-number selection;
@@ -347,8 +360,10 @@ worth discussing.
 ## Conclusion
 
 The corrected project proves a coherent single-contract accelerator and a
-reproducible A7/S7 implementation flow. It does not prove a universal speedup or
-a finished portfolio engine. Its strongest result is the traceable chain from
-financial contract to C++, RTL, generated vendor IP, routed hardware, and
-measurement boundaries. That chain is now strong enough to support the next
-portfolio/scenario/Greeks layer without carrying forward false hardware data.
+reproducible A7/S7 implementation flow. It does not prove a universal speedup,
+a production risk engine, or a fully pipelined heterogeneous fabric. Its
+strongest result is the traceable chain from financial contract to C++, RTL,
+generated vendor IP, routed hardware, and measurement boundaries. The revised
+plan uses that chain to address numerical range, uncertainty, redundant risk
+work, path-dependent state, and only then multi-context hardware and deployment
+scaling.

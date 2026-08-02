@@ -44,6 +44,12 @@ The study evaluates the reference with `ref_steps/2` and `ref_steps`. A warning
 is raised when the reference itself has not converged enough for the requested
 tolerance.
 
+For roadmap features, C++ should favor readable double-precision references
+that use the CPU's floating-point arithmetic naturally. The existing
+fixed-point mirror remains the raw-price oracle for implemented RTL, but a new
+financial reference does not need to reproduce FPGA precision or serve as an
+optimized CPU performance competitor.
+
 ## Shared C++/RTL Contract
 
 The active multi-date contract is:
@@ -174,6 +180,41 @@ The board core supports at most 1,024 paths and 50 steps. Larger-path C++
 studies are still valuable for understanding convergence, but they are not
 current FPGA requests.
 
+## Roadmap Accuracy Gates
+
+### Regression range
+
+Using 64-bit accumulators does not guarantee a stable solve if each sufficient
+statistic is later narrowed or saturated independently into Q16.16. That can
+change the relative scale of the normal-equation matrix and right-hand side.
+Before increasing path count or basis size, compare normalized coordinates,
+common block scaling, block-floating representation, and a wider fixed-point
+solver. Report saturation, conditioning, fallback, and coefficient magnitude.
+
+### QMC uncertainty
+
+A single deterministic Sobol stream is reproducible but does not provide an
+ordinary sampling error estimate. Add independent digitally scrambled Sobol
+replicas and report variation across replicas. Evaluate Brownian-bridge or PCA
+dimension ordering before assuming that more paths alone improve convergence.
+
+### Exercise-policy bias
+
+Fitting and valuing an exercise policy on the same paths can bias an LSM result.
+Test held-out paths or cross-fitting and report policy-fit and valuation samples
+separately. Stability must be checked across path counts, exercise grids,
+bases, scrambles, and fallback behavior.
+
+### New-product references
+
+- European vanilla modes require a high-precision analytic reference.
+- European arithmetic Asians require a converged PDE or double-precision
+  MC/QMC reference; geometric Asians provide a useful analytic control.
+- A simple Bermudan arithmetic Asian should be checked against a two-state PDE
+  and a readable double-precision LSM implementation using spot and average.
+- Each added stochastic state, such as volatility, rates, or another asset,
+  needs its own convergence surface and a justified sparse regression basis.
+
 ## Scenario and Greek Accuracy Policy
 
 A future risk report should retain enough information to reproduce every
@@ -185,14 +226,19 @@ number:
 - bump sizes and finite-difference formula;
 - path count, date count, option type, and exercise mode;
 - common-random-number seed/index policy;
-- target (`cpu`, `fpga`, or `both`);
-- CPU/FPGA raw delta for every `both` job;
+- implementation (`fpga`, `fixed_mirror`, `float_reference`, or paired);
+- FPGA/fixed-mirror raw delta when exact parity is intended;
+- FPGA/high-precision financial error when model accuracy is intended;
 - regression health and fallback status;
 - unsupported-feature or fallback markers.
 
 Common random numbers reduce variance in a price difference, but they do not
-eliminate bias or make a poor bump size correct. Greeks should be checked over
-multiple bump sizes and, for European cases, against analytic derivatives.
+eliminate bias, make a poor bump size correct, or avoid recomputing a complete
+job. The hardware roadmap should replay normal increments and share compatible
+path work across strikes, payoffs, and shocks. Greeks should be checked over
+multiple bump sizes and, where valid, against analytic, pathwise, adjoint, or
+other independent derivatives. Gamma requires particular care because noise
+and exercise-boundary changes are amplified by a second difference.
 
 Portfolio totals can hide individual failures. Aggregate only after every job
 has a success status and traceable diagnostics.
@@ -204,6 +250,10 @@ has a success status and traceable diagnostics.
 - No-dividend CALLs should avoid noisy early-exercise regression.
 - Fixed-point error is often smaller than QMC/regression error, but this must be
   measured over the intended surface.
+- Wide accumulation does not prevent error caused by a narrow, independently
+  saturated regression boundary.
+- Deterministic Sobol reproducibility is not an uncertainty estimate.
+- Common random numbers do not by themselves reuse computation.
 - Low-path outliers are estimator behavior, not automatically an RTL defect.
 - Vendor-IP arithmetic contracts need focused tests before full-model claims.
 - Scenario and Greek outputs need job-level audit trails, not only polished
@@ -218,6 +268,9 @@ This project does not yet claim:
 - path-dependent or multi-asset accuracy;
 - calibrated volatility surfaces;
 - portfolio-level risk accuracy;
+- randomized-QMC error estimates or cross-fit LSM valuation;
+- computational reuse across bumped requests;
+- queued mixed-product or multi-context execution;
 - variance reduction beyond the current deterministic Sobol/common-random-
   number setup;
 

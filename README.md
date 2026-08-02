@@ -1,14 +1,15 @@
 # FPGA QMC-LSM Risk Engine
 
-This fork extends the original FPGA-accelerated option pricer toward a
-portfolio, scenario, and Greeks engine. The implemented core is still a
-single-contract pricing accelerator; the portfolio layer is a deliberate next
-phase, not a finished claim.
+This fork extends the original FPGA-accelerated option pricer toward a queued,
+multi-mode pricing and risk fabric. The implemented core is still a
+single-contract QMC-LSM accelerator. Shared-path scenario evaluation, Asian
+state, randomized-QMC uncertainty, and multi-context execution are roadmap
+items rather than implemented claims.
 
 The project is useful as a hardware/software co-design case study: a Sobol QMC
 path generator, fixed-point GBM, discrete-date Longstaff-Schwartz exercise,
-bit-exact C++ modeling, SystemVerilog RTL, UART control, routed FPGA builds, and
-boundary-explicit performance measurement all live in one reproducible flow.
+bit-exact C++ validation, SystemVerilog RTL, UART control, routed FPGA builds,
+and boundary-explicit performance measurement all live in one reproducible flow.
 
 ## Important Measurement Correction
 
@@ -64,6 +65,13 @@ Not implemented yet:
 - multi-asset correlation or path-dependent payoffs;
 - dividend yield, calibration, or live market data;
 - PCIe, Ethernet, or AXI host transport;
+- randomized Sobol scrambles, independent replicas, or confidence intervals;
+- Brownian-bridge/PCA dimension reduction;
+- saturation-safe wider or block-normalized regression beyond the current
+  Q16.16 solver boundary;
+- shared normal/path reuse across related base and bumped jobs;
+- Asian running-average state or multivariable continuation regression;
+- overlapping job contexts or queued mixed-product execution;
 - production risk controls or production trading guarantees.
 
 ## Corrected FPGA Builds
@@ -217,23 +225,44 @@ It is transport latency, not core compute latency.
 
 ## Why This Matters for the Fork
 
-The accelerator is most credible as a repeated revaluation primitive. A future
-portfolio/scenario engine can schedule many independent contracts and shocks,
-reuse common Sobol draws, aggregate risk, and compare CPU and FPGA boundaries
-without changing the validated pricing contract all at once.
+The corrected kernel is a trustworthy starting point, but a low-dimensional
+vanilla American option is not its most defensible final target: trees and PDEs
+are strong competitors, and many European vanillas have closed forms. The
+project becomes more interesting when one FPGA can keep reusable stochastic
+work resident, route mixed requests, bypass unnecessary stages, and share paths
+across related payoffs, scenarios, or risk calculations.
 
-The recommended next layers are:
+The roadmap therefore uses a hybrid fabric:
 
-1. Python schema, portfolio loader, scenario generator, and result analysis.
-2. C++ pricing library/API extracted from the current executable.
-3. Batched host scheduler with deterministic job IDs and common random numbers.
-4. Greeks and scenario validation against independent references.
-5. Only then, a wider hardware request queue or faster transport.
+```text
+tagged request -> classifier and queues
+                  |-> analytic/interpolation fast lane
+                  `-> shared Sobol/model path pipeline
+                       -> configurable state/payoff
+                          |-> European reduction
+                          `-> stored-state LSM exercise
+```
 
-Keep the numerically subtle pricing implementation in C++ and SystemVerilog;
-use Python for orchestration, experiments, reports, and learning. See
-[`PROJECT_REPORT.md`](PROJECT_REPORT.md) for the architecture narrative and the
-project lab manual in [`docs/fpga-build.md`](docs/fpga-build.md).
+European jobs should not allocate path storage or regression resources unless
+their payoff needs simulation. A European arithmetic-Asian job can use the
+shared path generator and running-average state, then bypass LSM. A Bermudan
+Asian job can reuse that forward infrastructure and regress continuation on
+spot and average at the permitted exercise dates.
+
+This does not imply one completed LSM contract per clock. Forward arithmetic
+can be deeply pipelined, but LSM has population-wide regression barriers and
+backward dependencies between exercise dates. Useful job overlap requires
+tagged transactions, FIFOs, multiple memory contexts, and scheduling.
+
+The FPGA remains the future implementation target. The existing fixed-point
+C++ mirror stays as a bit-exact regression oracle; new C++ references should be
+clear double-precision implementations that use the CPU's floating-point
+strengths for rapid accuracy validation, not mandatory optimized CPU
+competitors. Python remains the orchestration and reporting layer.
+
+The gated sequence is in [`docs/roadmap.md`](docs/roadmap.md). Numerical range,
+uncertainty, and Greek validation come before wider transport or a larger
+device.
 
 ## Repository Map
 
@@ -256,6 +285,7 @@ vivado_build/             ignored generated projects for validated configuration
 - [`docs/performance.md`](docs/performance.md): corrected timing and benchmark interpretation.
 - [`docs/validation.md`](docs/validation.md): evidence hierarchy and release gates.
 - [`docs/accuracy.md`](docs/accuracy.md): financial-reference methodology.
+- [`docs/roadmap.md`](docs/roadmap.md): numerical gates and multi-mode FPGA architecture.
 - [`docs/waveform-debugging.md`](docs/waveform-debugging.md): GTKWave UART lab and physical ILA guidance.
 - [`baseline/cpp_fixed/README.md`](baseline/cpp_fixed/README.md): C++ mirror and Google Benchmark guide.
 - [`results/claims/README.md`](results/claims/README.md): reproducible evidence collector.
@@ -265,4 +295,5 @@ vivado_build/             ignored generated projects for validated configuration
 This is not a production trading engine and not a universal FPGA speedup claim.
 It is a reproducible pricing-kernel prototype with corrected divider semantics,
 bit-exact reference validation, implementation-clean A7/S7 configurations, and
-an explicit path toward portfolio and scenario work.
+an explicit path toward a saturation-safe, shared-stage FPGA pricing fabric. It
+does not yet prove the usefulness or performance of that future architecture.
